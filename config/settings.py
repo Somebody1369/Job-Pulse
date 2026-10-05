@@ -104,6 +104,35 @@ SCRAPER_MIN_INTERVAL: float = env.float("SCRAPER_MIN_INTERVAL", default=1.0)
 
 VACANCY_CATEGORIES: list[str] = env.list("VACANCY_CATEGORIES", default=["Python"])
 VACANCY_DETAILS_BATCH_SIZE: int = env.int("VACANCY_DETAILS_BATCH_SIZE", default=50)
+MARKET_CATEGORIES: list[str] = env.list(
+    "MARKET_CATEGORIES",
+    default=[
+        "",
+        "python",
+        "javascript",
+        "react",
+        "java",
+        "dotnet",
+        "node_js",
+        "php",
+        "golang",
+        "cpp",
+        "ios",
+        "android",
+        "flutter",
+        "fullstack",
+        "qa",
+        "qa_automation",
+        "dev_ops",
+        "data_engineer",
+        "data_science",
+        "ml_ai",
+        "data_analyst",
+        "project_manager",
+        "product_manager",
+        "design",
+    ],
+)
 
 CELERY_BROKER_URL: str = env.str("CELERY_BROKER_URL", default="redis://localhost:6379/0")
 CELERY_TIMEZONE = TIME_ZONE
@@ -125,5 +154,9 @@ CELERY_BEAT_SCHEDULE = {
     "update-exchange-rates": {
         "task": "market.tasks.update_exchange_rates",
         "schedule": crontab(hour="9,17", minute="0"),
+    },
+    "capture-market-snapshots": {
+        "task": "market.tasks.capture_market_snapshots",
+        "schedule": crontab(hour="23", minute="30"),
     },
 }

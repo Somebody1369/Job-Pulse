@@ -1,14 +1,29 @@
-from collections.abc import Mapping
+import logging
+from collections.abc import Iterable, Mapping
+from dataclasses import asdict, dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Final, Self
 
+import requests
+from django.conf import settings
+
 from core.http import HttpClient
-from market.models import ExchangeRate
+from core.robots import RobotsPolicy
+from market.djinni import DjinniMarketClient, MarketPageError
+from market.models import ExchangeRate, MarketSnapshot
 from market.nbu import NbuClient
 
 BASE_CURRENCY: Final = "UAH"
 TARGET_CURRENCY: Final = "USD"
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotResult:
+    captured: list[MarketSnapshot]
+    failed: list[str]
 
 
 def update_exchange_rates(http: HttpClient, on: date | None = None) -> int:
@@ -49,3 +64,24 @@ class UsdConverter:
             return None
         usd = Decimal(amount) * source_rate / target_rate
         return int(usd.quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+
+def capture_market_snapshots(http: HttpClient, categories: Iterable[str]) -> SnapshotResult:
+    client = DjinniMarketClient(http, RobotsPolicy(http, settings.SCRAPER_USER_AGENT))
+    captured: list[MarketSnapshot] = []
+    failed: list[str] = []
+    for category in categories:
+        try:
+            stats = client.fetch(category)
+        except (requests.RequestException, MarketPageError) as exc:
+            logger.warning("Failed to capture the %r market snapshot: %s", category, exc)
+            failed.append(category)
+            continue
+        fields = asdict(stats)
+        snapshot, _ = MarketSnapshot.objects.update_or_create(
+            category=fields.pop("category"),
+            calculated_on=fields.pop("calculated_on"),
+            defaults=fields,
+        )
+        captured.append(snapshot)
+    return SnapshotResult(captured=captured, failed=failed)
