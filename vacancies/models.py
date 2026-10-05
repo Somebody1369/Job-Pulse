@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+from datetime import timedelta
+from typing import TYPE_CHECKING
+
+from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
+from django.db import models
+from django.utils import timezone
+
+if TYPE_CHECKING:
+    from vacancies.services import IngestStats
+
+
+class Source(models.Model):
+    class Kind(models.TextChoices):
+        RSS = "rss", "RSS feed"
+        API = "api", "API"
+        HTML = "html", "HTML pages"
+
+    code = models.SlugField(max_length=32, unique=True)
+    name = models.CharField(max_length=64)
+    homepage = models.URLField()
+    kind = models.CharField(max_length=8, choices=Kind)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("name",)
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Company(models.Model):
+    name = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=255, unique=True, allow_unicode=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("name",)
+        verbose_name_plural = "companies"
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Skill(models.Model):
+    name = models.CharField(max_length=64, unique=True)
+    slug = models.SlugField(max_length=64, unique=True)
+    aliases = ArrayField(models.CharField(max_length=64), default=list, blank=True)
+    is_case_sensitive = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ("name",)
+
+    def __str__(self) -> str:
+        return self.name
+
+    @property
+    def variants(self) -> list[str]:
+        return [self.name, *self.aliases]
+
+
+class Vacancy(models.Model):
+    source = models.ForeignKey(Source, on_delete=models.PROTECT, related_name="vacancies")
+    external_id = models.CharField(max_length=64)
+    url = models.URLField(max_length=1000)
+    title = models.CharField(max_length=500)
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="vacancies",
+    )
+    categories = ArrayField(models.CharField(max_length=64), default=list, blank=True)
+    locations = ArrayField(models.CharField(max_length=128), default=list, blank=True)
+    is_remote = models.BooleanField(null=True, blank=True)
+    salary_text = models.CharField(max_length=64, blank=True)
+    description = models.TextField(blank=True)
+    description_html = models.TextField(blank=True)
+    skills = models.ManyToManyField(Skill, related_name="vacancies", blank=True)
+    published_at = models.DateTimeField()
+    first_seen_at = models.DateTimeField(default=timezone.now)
+    last_seen_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ("-published_at",)
+        verbose_name_plural = "vacancies"
+        constraints = (
+            models.UniqueConstraint(
+                fields=("source", "external_id"),
+                name="vacancy_unique_per_source",
+            ),
+        )
+        indexes = (
+            models.Index(fields=("-published_at",), name="vacancy_published_idx"),
+            GinIndex(fields=("categories",), name="vacancy_categories_gin"),
+        )
+
+    def __str__(self) -> str:
+        return self.title
+
+
+class ScrapeRun(models.Model):
+    class Status(models.TextChoices):
+        RUNNING = "running", "Running"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+
+    source = models.ForeignKey(Source, on_delete=models.CASCADE, related_name="runs")
+    categories = ArrayField(models.CharField(max_length=64), default=list, blank=True)
+    status = models.CharField(max_length=16, choices=Status, default=Status.RUNNING)
+    started_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    fetched_count = models.PositiveIntegerField(default=0)
+    created_count = models.PositiveIntegerField(default=0)
+    updated_count = models.PositiveIntegerField(default=0)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ("-started_at",)
+        indexes = (
+            models.Index(fields=("source", "-started_at"), name="scraperun_source_started_idx"),
+        )
+
+    def __str__(self) -> str:
+        return f"{self.source} at {self.started_at:%Y-%m-%d %H:%M}"
+
+    @property
+    def duration(self) -> timedelta | None:
+        if self.finished_at is None:
+            return None
+        return self.finished_at - self.started_at
+
+    def mark_succeeded(self, stats: IngestStats) -> None:
+        self.status = self.Status.SUCCEEDED
+        self.fetched_count = stats.fetched
+        self.created_count = stats.created
+        self.updated_count = stats.updated
+        self.finished_at = timezone.now()
+        self.save(
+            update_fields=(
+                "status",
+                "fetched_count",
+                "created_count",
+                "updated_count",
+                "finished_at",
+            )
+        )
+
+    def mark_failed(self, error: BaseException) -> None:
+        self.status = self.Status.FAILED
+        self.error = f"{type(error).__name__}: {error}"
+        self.finished_at = timezone.now()
+        self.save(update_fields=("status", "error", "finished_at"))
