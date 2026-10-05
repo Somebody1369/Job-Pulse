@@ -1,0 +1,33 @@
+x-database-url: &database-url postgres://${POSTGRES_USER:-jobpulse}:${POSTGRES_PASSWORD:-jobpulse}@db:5432/${POSTGRES_DB:-jobpulse}
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jobpulse}
+      POSTGRES_USER: ${POSTGRES_USER:-jobpulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jobpulse}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: *database-url
+    command: sh -c "python manage.py migrate --noinput && gunicorn config.wsgi:application"
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
