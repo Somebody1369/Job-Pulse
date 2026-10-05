@@ -7,15 +7,24 @@ from typing import Final, Self
 
 import requests
 from django.conf import settings
+from django.db import transaction
 
 from core.http import HttpClient
 from core.robots import RobotsPolicy
 from market.djinni import DjinniMarketClient, MarketPageError
-from market.models import ExchangeRate, MarketSnapshot
+from market.models import ExchangeRate, MarketSnapshot, SalaryResponse, SalarySurvey
 from market.nbu import NbuClient
+from market.surveys import (
+    SURVEY_URL_TEMPLATE,
+    SurveyResponse,
+    decode_survey,
+    parse_survey,
+    survey_period,
+)
 
 BASE_CURRENCY: Final = "UAH"
 TARGET_CURRENCY: Final = "USD"
+SURVEY_BATCH_SIZE: Final = 2000
 
 logger = logging.getLogger(__name__)
 
@@ -85,3 +94,26 @@ def capture_market_snapshots(http: HttpClient, categories: Iterable[str]) -> Sna
         )
         captured.append(snapshot)
     return SnapshotResult(captured=captured, failed=failed)
+
+
+def import_salary_survey(http: HttpClient, name: str) -> SalarySurvey:
+    period = survey_period(name)
+    url = SURVEY_URL_TEMPLATE.format(name=name)
+    responses = list(parse_survey(decode_survey(http.get(url).content)))
+    return _store_survey(name, period, url, responses)
+
+
+@transaction.atomic
+def _store_survey(
+    name: str, period: date, url: str, responses: list[SurveyResponse]
+) -> SalarySurvey:
+    survey, _ = SalarySurvey.objects.update_or_create(
+        name=name,
+        defaults={"period": period, "source_url": url, "response_count": len(responses)},
+    )
+    survey.responses.all().delete()
+    SalaryResponse.objects.bulk_create(
+        [SalaryResponse(survey=survey, **asdict(response)) for response in responses],
+        batch_size=SURVEY_BATCH_SIZE,
+    )
+    return survey

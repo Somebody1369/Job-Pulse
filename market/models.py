@@ -56,3 +56,37 @@ class MarketSnapshot(models.Model):
         if not self.vacancies_online:
             return None
         return round(self.active_candidates / self.vacancies_online, 1)
+
+
+class SalarySurvey(models.Model):
+    name = models.SlugField(max_length=32, unique=True)
+    period = models.DateField(unique=True)
+    source_url = models.URLField()
+    response_count = models.PositiveIntegerField(default=0)
+    imported_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-period",)
+
+    def __str__(self) -> str:
+        return f"DOU salary survey {self.period:%B %Y}"
+
+
+class SalaryResponse(models.Model):
+    survey = models.ForeignKey(SalarySurvey, on_delete=models.CASCADE, related_name="responses")
+    salary_usd = models.PositiveIntegerField()
+    experience_years = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
+    programming_language = models.CharField(max_length=64, blank=True)
+    position = models.CharField(max_length=128, blank=True)
+    seniority = models.CharField(max_length=64, blank=True)
+    english_level = models.CharField(max_length=32, blank=True)
+
+    class Meta:
+        indexes = (
+            models.Index(
+                fields=("survey", "programming_language"), name="salary_survey_language_idx"
+            ),
+        )
+
+    def __str__(self) -> str:
+        return f"${self.salary_usd} in {self.survey}"
