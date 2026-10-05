@@ -1,4 +1,4 @@
-.PHONY: install env services up down migrate superuser collect enrich rates run worker beat test lint format typecheck check
+.PHONY: install env services up down migrate superuser collect enrich rates run worker beat test e2e lint format typecheck check
 
 install:
 	uv sync
@@ -41,6 +41,9 @@ beat:
 
 test:
 	uv run pytest --cov
+
+e2e:
+	uv run pytest -m e2e
 
 lint:
 	uv run ruff check .

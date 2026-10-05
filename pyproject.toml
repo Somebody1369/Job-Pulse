@@ -28,6 +28,7 @@ dev = [
     "pytest-django>=4.14.0",
     "responses>=0.26.3",
     "ruff>=0.16.10",
+    "selenium>=4.50.0",
     "types-openpyxl>=3.1.5.20260827",
     "types-requests>=2.33.0.20260906",
 ]
@@ -70,6 +71,7 @@ DJANGO_SETTINGS_MODULE = "config.settings"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
 filterwarnings = ["error"]
+markers = ["e2e: browser tests that drive a real Chrome through Selenium"]
 
 [tool.coverage.run]
 source = ["analytics", "config", "core", "market", "vacancies"]

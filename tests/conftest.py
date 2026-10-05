@@ -2,18 +2,22 @@ from collections.abc import Iterator
 
 import pytest
 import responses
+from django.conf import settings as django_settings
 from pytest_django.fixtures import Settings
 
 from core.http import HttpClient
 
 
-@pytest.fixture(autouse=True)
-def _test_settings(settings: Settings) -> None:
-    settings.STORAGES = {
-        **settings.STORAGES,
+def pytest_configure() -> None:
+    django_settings.STORAGES = {
+        **django_settings.STORAGES,
         "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
     }
-    settings.WHITENOISE_AUTOREFRESH = True
+    django_settings.WHITENOISE_AUTOREFRESH = True
+
+
+@pytest.fixture(autouse=True)
+def _test_settings(settings: Settings) -> None:
     settings.SCRAPER_MIN_INTERVAL = 0
     settings.SCRAPER_MAX_RETRIES = 0
 
