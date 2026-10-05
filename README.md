@@ -1,6 +1,8 @@
 # JobPulse
 
-JobPulse collects vacancies from Ukrainian IT job boards, normalizes them and stores them in PostgreSQL for search and market analytics.
+JobPulse collects vacancies from Ukrainian IT job boards, normalizes them and turns them, together with public market statistics and salary surveys, into a market analytics dashboard.
+
+![Market overview](docs/dashboard-market.png)
 
 ## Features
 
@@ -10,30 +12,34 @@ JobPulse collects vacancies from Ukrainian IT job boards, normalizes them and st
 - Detects 65 technologies from a skill dictionary with aliases, case-sensitive rules and stop phrases, for example `Postgres` → PostgreSQL and `ASP.NET` → .NET, but never `go` or `Go-to-market` → Go
 - Recognizes the same company and the same vacancy across job boards, so `Precoro Inc.` on DOU and `Precoro` on Djinni are one employer
 - Full-text search with stemming, phrases, `OR` and `-exclusions`, ranked by title and description matches
+- Captures daily Djinni market statistics for 24 categories: active candidates, open vacancies, expected and offered salaries, applications per vacancy
+- Imports five DOU salary surveys (2024–2026, 64k responses) and computes medians and quartiles in PostgreSQL
+- Analytics dashboard with competition, trends, salaries by seniority and experience, salary dynamics and skill demand, each table exportable to CSV and Excel
 - Records every collection and enrichment run with its status, counts, duration and error
 - Provides a Django admin to browse vacancies, companies, skills, exchange rates and run history
 
 ## Tech stack
 
-Python 3.13 · Django 6.1 · PostgreSQL 18 · Celery + Redis · Requests · BeautifulSoup + lxml · Docker · uv · pytest · ruff · mypy (strict) · GitHub Actions
+Python 3.13 · Django 6.1 · PostgreSQL 18 · Celery + Redis · Requests · BeautifulSoup + lxml · Selenium · Chart.js · openpyxl · Docker · uv · pytest · ruff · mypy (strict) · GitHub Actions
 
 ## Architecture
 
 ```
-            ┌────────────── Celery beat ──────────────┐
-            ▼                    ▼                    ▼
- RSS feeds ─► Collectors   Job pages ─► Enricher   NBU API ─► Exchange rates
-            │                    │                    │
-            └──► VacancyIngestor ┴──► PostgreSQL ◄────┘ ─► Django admin
-                 companies, skills,    search vector,
-                 salaries in USD,      fingerprints,
-                 dedup fingerprints    run history
+                 ┌──────────────────── Celery beat ────────────────────┐
+                 ▼                  ▼                 ▼                ▼
+ RSS feeds ─► Collectors   Job pages ─► Enricher   NBU API   Djinni statistics
+                 │                  │                 │                │
+                 └─► VacancyIngestor┴─► PostgreSQL ◄──┴────────────────┘
+                                         ▲      │
+                     DOU salary surveys ─┘      ├─► Analytics dashboard, CSV, Excel
+                                                └─► Django admin
 ```
 
 ```
 config/        Django settings, URLs and the Celery app
-core/          HTTP client, robots.txt policy, advisory locks
-market/        NBU exchange rates and USD conversion
+core/          HTTP client, robots.txt policy, advisory locks, percentile aggregates
+market/        Exchange rates, Djinni market snapshots, DOU salary surveys
+analytics/     Dashboard queries, page, charts and exports
 vacancies/
   collectors/  RSS, HTML and JSON-LD parsing, one collector per job board
   services.py  Ingestion, enrichment and run tracking
@@ -49,7 +55,8 @@ Main design decisions:
 - **One collector per source.** A collector turns a feed or a page into plain data objects and knows nothing about the database. You add a job board by writing a collector class and registering it.
 - **Unknown is not empty.** A feed that does not provide a field never erases what a job page already filled in, while an explicit "no salary" from the source does clear it.
 - **Atomic ingestion.** A batch of vacancies is saved in one transaction, so a failed run never leaves partial data.
-- **The database does the heavy lifting.** The search vector is a generated column with a GIN index, categories and locations are arrays, constraints reject duplicates and inverted salary ranges, `DISTINCT ON` picks the latest rate per currency and the latest posting per fingerprint, and advisory locks stop scheduled runs from overlapping.
+- **The database does the heavy lifting.** The search vector is a generated column with a GIN index, categories and locations are arrays, constraints reject duplicates and inverted salary ranges, `DISTINCT ON` picks the latest rate, snapshot and posting, `PERCENTILE_CONT` computes salary quartiles, and advisory locks stop scheduled runs from overlapping.
+- **One table definition, three outputs.** Each dashboard table is described once and rendered as HTML, CSV and Excel, so exports always match the page.
 
 ## Data sources
 
@@ -59,6 +66,8 @@ JobPulse uses only data that sources publish for automated consumption.
 |---|---|---|
 | DOU | RSS `jobs.dou.ua/vacancies/feeds/` | Used |
 | Djinni | RSS `djinni.co/jobs/rss/` and `JobPosting` data on job pages | Used |
+| Djinni | Public salary statistics page `djinni.co/salaries/` | Used |
+| DOU | Raw salary survey files published in `github.com/devua/csv` | Used |
 | National Bank of Ukraine | Official exchange rate API | Used |
 | Upwork, Indeed, Fiverr, LinkedIn | Terms of service or robots.txt forbid scraping | Not used |
 
@@ -74,9 +83,11 @@ docker compose up -d --build --wait
 docker compose exec web python manage.py createsuperuser
 docker compose exec web python manage.py update_exchange_rates
 docker compose exec web python manage.py collect_vacancies
+docker compose exec web python manage.py capture_market_snapshots
+docker compose exec web python manage.py import_salary_surveys
 ```
 
-Open http://localhost:8000/admin/. The `worker` and `beat` services keep the data up to date from then on.
+Open http://localhost:8000/ for the dashboard and http://localhost:8000/admin/ for the data. The `worker` and `beat` services keep the data up to date from then on.
 
 ### Local development
 
@@ -102,6 +113,8 @@ Run `make worker` and `make beat` in separate terminals to enable the schedule.
 | `enrich_vacancies [-s SOURCE] [--limit N]` | Fetch job pages for vacancies that have not been enriched yet |
 | `update_exchange_rates [--date YYYY-MM-DD]` | Load NBU exchange rates |
 | `rematch_skills` | Recalculate vacancy skills after editing the skill dictionary |
+| `capture_market_snapshots [-c CATEGORY]` | Save today's Djinni market statistics |
+| `import_salary_surveys [-s NAME]` | Import DOU salary surveys such as `2026_june` |
 
 Collection commands exit with a non-zero code if any source fails, so they can also run under cron.
 
@@ -112,6 +125,7 @@ Collection commands exit with a non-zero code if any source fails, so they can a
 | Collect vacancies | Every hour at :05 |
 | Enrich vacancies | Every hour at :20 and :50 |
 | Update exchange rates | 09:00 and 17:00 |
+| Capture market snapshots | 23:30 |
 
 ## Configuration
 
@@ -124,6 +138,8 @@ Collection commands exit with a non-zero code if any source fails, so they can a
 | `CELERY_BROKER_URL` | `redis://localhost:6379/0` | Redis URL for Celery |
 | `VACANCY_CATEGORIES` | `Python` | Categories to collect |
 | `VACANCY_DETAILS_BATCH_SIZE` | `50` | Job pages fetched per source and run |
+| `MARKET_CATEGORIES` | 24 categories | Djinni category codes to snapshot, an empty code is the whole market |
+| `DOU_SALARY_SURVEYS` | `2024_june` … `2026_june` | DOU surveys to import |
 | `SCRAPER_USER_AGENT` | `JobPulse/0.1` | User-Agent sent to job boards, should include a contact |
 | `SCRAPER_MIN_INTERVAL` | `1.0` | Minimum delay between requests to the same host, in seconds |
 | `SCRAPER_MAX_RETRIES` | `3` | Retries for 429 and 5xx responses |
@@ -136,15 +152,17 @@ Collection commands exit with a non-zero code if any source fails, so they can a
 make check
 ```
 
-Runs ruff, mypy in strict mode and the pytest suite with a 90% coverage gate. Current coverage is 100%. GitHub Actions runs the same checks against PostgreSQL, verifies that migrations are up to date and builds the Docker image.
+Runs ruff, mypy in strict mode and the pytest suite with a 90% coverage gate. Current coverage is 100%. The suite includes an end-to-end test that drives a headless Chrome through Selenium against a live server, which you can run alone with `make e2e`. GitHub Actions runs the same checks against PostgreSQL, verifies that migrations are up to date and builds the Docker image.
+
+![Salaries by experience and seniority](docs/dashboard-salaries.png)
 
 ## Roadmap
 
 1. ~~Collection from DOU and Djinni, data model, admin~~
 2. ~~Salary normalization, job page enrichment, cross-source deduplication, full-text search, scheduling~~
-3. Market analytics: Djinni market snapshots, DOU salary surveys, trend tables and charts
+3. ~~Market analytics: Djinni market snapshots, DOU salary surveys, dashboard, exports, Selenium end-to-end test~~
 4. REST API with Django REST Framework
 5. Telegram bot with subscriptions and market reports
 6. More sources: Greenhouse, Lever, Remotive, Freelancehunt, Work.ua
 7. Candidate profiles and vacancy matching
-8. End-to-end tests with Selenium
+8. More end-to-end coverage and a demo deployment
