@@ -77,6 +77,11 @@ class Vacancy(models.Model):
     locations = ArrayField(models.CharField(max_length=128), default=list, blank=True)
     is_remote = models.BooleanField(null=True, blank=True)
     salary_text = models.CharField(max_length=64, blank=True)
+    salary_min = models.PositiveIntegerField(null=True, blank=True)
+    salary_max = models.PositiveIntegerField(null=True, blank=True)
+    salary_currency = models.CharField(max_length=3, blank=True)
+    salary_min_usd = models.PositiveIntegerField(null=True, blank=True)
+    salary_max_usd = models.PositiveIntegerField(null=True, blank=True)
     description = models.TextField(blank=True)
     description_html = models.TextField(blank=True)
     skills = models.ManyToManyField(Skill, related_name="vacancies", blank=True)
@@ -91,6 +96,12 @@ class Vacancy(models.Model):
             models.UniqueConstraint(
                 fields=("source", "external_id"),
                 name="vacancy_unique_per_source",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(salary_min__isnull=True)
+                | models.Q(salary_max__isnull=True)
+                | models.Q(salary_min__lte=models.F("salary_max")),
+                name="vacancy_salary_range_valid",
             ),
         )
         indexes = (

@@ -1,3 +1,4 @@
+import html
 import re
 from dataclasses import dataclass
 from typing import Final, override
@@ -6,6 +7,7 @@ from urllib.parse import urlsplit, urlunsplit
 from vacancies.collectors.base import RssCollector, VacancyData
 from vacancies.collectors.html import html_to_text
 from vacancies.collectors.rss import FeedFormatError, FeedItem
+from vacancies.salary import parse_salary
 
 COMPANY_SEPARATOR: Final = " в "
 DETAILS_SEPARATOR: Final = ", "
@@ -29,7 +31,7 @@ def parse_title(raw: str) -> DouTitle:
     position, separator, rest = raw.rpartition(COMPANY_SEPARATOR)
     if not separator:
         return DouTitle(position=raw.strip())
-    company, *details = (part.strip() for part in rest.split(DETAILS_SEPARATOR))
+    company, *details = (" ".join(part.split()) for part in rest.split(DETAILS_SEPARATOR))
     salary_text = next((part for part in details if _is_salary(part)), "")
     is_remote = any(_is_remote(part) for part in details)
     locations = tuple(
@@ -62,7 +64,7 @@ class DouCollector(RssCollector):
 
     @override
     def build(self, item: FeedItem, category: str) -> VacancyData:
-        title = parse_title(item.title)
+        title = parse_title(html.unescape(item.title))
         return VacancyData(
             external_id=self._external_id(item.link),
             url=self._canonical_url(item.link),
@@ -72,6 +74,7 @@ class DouCollector(RssCollector):
             locations=title.locations,
             is_remote=title.is_remote,
             salary_text=title.salary_text,
+            salary=parse_salary(title.salary_text),
             description=html_to_text(item.description_html, exclude=REPLY_LINK_SELECTOR),
             description_html=item.description_html,
             published_at=item.published_at,

@@ -7,9 +7,11 @@ from django.db import transaction
 from django.utils.text import slugify
 
 from core.http import HttpClient
+from market.services import UsdConverter
 from vacancies.collectors.base import VacancyData
 from vacancies.collectors.registry import get_collector_class
 from vacancies.models import Company, ScrapeRun, Skill, Source, Vacancy
+from vacancies.salary import NO_SALARY, SalaryRange
 from vacancies.skills import SkillMatcher
 
 logger = logging.getLogger(__name__)
@@ -33,9 +35,17 @@ def merge_duplicates(items: Iterable[VacancyData]) -> dict[str, VacancyData]:
 
 
 class VacancyIngestor:
-    def __init__(self, source: Source, *, matcher: SkillMatcher, seen_at: datetime) -> None:
+    def __init__(
+        self,
+        source: Source,
+        *,
+        matcher: SkillMatcher,
+        converter: UsdConverter,
+        seen_at: datetime,
+    ) -> None:
         self._source = source
         self._matcher = matcher
+        self._converter = converter
         self._seen_at = seen_at
         self._companies: dict[str, Company] = {}
 
@@ -73,10 +83,19 @@ class VacancyIngestor:
         vacancy.locations = list(data.locations)
         vacancy.is_remote = data.is_remote
         vacancy.salary_text = data.salary_text
+        self._apply_salary(vacancy, data.salary)
         vacancy.description = data.description
         vacancy.description_html = data.description_html
         vacancy.published_at = data.published_at
         vacancy.last_seen_at = self._seen_at
+
+    def _apply_salary(self, vacancy: Vacancy, salary: SalaryRange | None) -> None:
+        effective = salary or NO_SALARY
+        vacancy.salary_min = effective.minimum
+        vacancy.salary_max = effective.maximum
+        vacancy.salary_currency = effective.currency
+        vacancy.salary_min_usd = self._converter.convert(effective.minimum, effective.currency)
+        vacancy.salary_max_usd = self._converter.convert(effective.maximum, effective.currency)
 
     def _resolve_company(self, name: str) -> Company | None:
         slug = slugify(name, allow_unicode=True)
@@ -102,6 +121,7 @@ def collect_from_source(
         ingestor = VacancyIngestor(
             source,
             matcher=SkillMatcher.from_skills(Skill.objects.all()),
+            converter=UsdConverter.from_latest_rates(),
             seen_at=run.started_at,
         )
         stats = ingestor.ingest(items)

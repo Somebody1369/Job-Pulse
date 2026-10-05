@@ -2,10 +2,9 @@ import pytest
 from django.test import Client
 from django.urls import reverse
 
-from tests.utils import make_vacancy_data
-from vacancies.models import ScrapeRun, Skill, Source, Vacancy
-from vacancies.services import IngestStats, VacancyIngestor
-from vacancies.skills import SkillMatcher
+from tests.utils import make_ingestor, make_vacancy_data
+from vacancies.models import ScrapeRun, Source, Vacancy
+from vacancies.services import IngestStats
 
 pytestmark = pytest.mark.django_db
 
@@ -14,9 +13,7 @@ pytestmark = pytest.mark.django_db
 def vacancy() -> Vacancy:
     source = Source.objects.get(code="dou")
     run = ScrapeRun.objects.create(source=source, categories=["Python"])
-    VacancyIngestor(
-        source, matcher=SkillMatcher.from_skills(Skill.objects.all()), seen_at=run.started_at
-    ).ingest([make_vacancy_data()])
+    make_ingestor(source, seen_at=run.started_at).ingest([make_vacancy_data()])
     run.mark_succeeded(IngestStats(fetched=1, created=1, updated=0))
     return Vacancy.objects.get()
 

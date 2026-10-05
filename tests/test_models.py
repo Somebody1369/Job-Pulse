@@ -2,10 +2,9 @@ from datetime import timedelta
 
 import pytest
 
-from tests.utils import make_vacancy_data
+from tests.utils import make_ingestor, make_vacancy_data
 from vacancies.models import ScrapeRun, Skill, Source
-from vacancies.services import IngestStats, VacancyIngestor
-from vacancies.skills import SkillMatcher
+from vacancies.services import IngestStats
 
 pytestmark = pytest.mark.django_db
 
@@ -41,9 +40,7 @@ def test_mark_failed_stores_error(run: ScrapeRun) -> None:
 
 def test_string_representations(run: ScrapeRun) -> None:
     source = run.source
-    VacancyIngestor(source, matcher=SkillMatcher.from_skills([]), seen_at=run.started_at).ingest(
-        [make_vacancy_data()]
-    )
+    make_ingestor(source, seen_at=run.started_at).ingest([make_vacancy_data()])
     vacancy = source.vacancies.select_related("company").get()
 
     assert str(source) == "DOU"

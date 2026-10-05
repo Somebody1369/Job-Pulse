@@ -1,21 +1,28 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import pytest
 import responses
+from django.db import IntegrityError, transaction
 from responses import matchers
 
 from core.http import HttpClient
-from tests.utils import DOU_FEED_URL, make_vacancy_data, read_fixture
-from vacancies.models import Company, ScrapeRun, Skill, Source, Vacancy
+from tests.utils import (
+    DEFAULT_SEEN_AT,
+    DOU_FEED_URL,
+    make_ingestor,
+    make_vacancy_data,
+    read_fixture,
+)
+from vacancies.models import Company, ScrapeRun, Source, Vacancy
+from vacancies.salary import SalaryRange
 from vacancies.services import (
     IngestStats,
-    VacancyIngestor,
     collect_from_source,
     merge_duplicates,
 )
 from vacancies.skills import SkillMatcher
 
-FIRST_SEEN = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+FIRST_SEEN = DEFAULT_SEEN_AT
 LAST_SEEN = FIRST_SEEN + timedelta(hours=1)
 
 
@@ -29,11 +36,6 @@ class FailingMatcher(SkillMatcher):
 @pytest.fixture
 def dou() -> Source:
     return Source.objects.get(code="dou")
-
-
-@pytest.fixture
-def matcher() -> SkillMatcher:
-    return SkillMatcher.from_skills(Skill.objects.all())
 
 
 def skill_names(vacancy: Vacancy) -> set[str]:
@@ -55,10 +57,8 @@ def test_merge_duplicates_unites_categories_and_keeps_latest_data() -> None:
 
 
 @pytest.mark.django_db
-def test_ingest_creates_vacancies_with_companies_and_skills(
-    dou: Source, matcher: SkillMatcher
-) -> None:
-    ingestor = VacancyIngestor(dou, matcher=matcher, seen_at=FIRST_SEEN)
+def test_ingest_creates_vacancies_with_companies_and_skills(dou: Source) -> None:
+    ingestor = make_ingestor(dou)
 
     stats = ingestor.ingest(
         [
@@ -84,10 +84,10 @@ def test_ingest_creates_vacancies_with_companies_and_skills(
 
 
 @pytest.mark.django_db
-def test_ingest_updates_existing_vacancy(dou: Source, matcher: SkillMatcher) -> None:
-    VacancyIngestor(dou, matcher=matcher, seen_at=FIRST_SEEN).ingest([make_vacancy_data()])
+def test_ingest_updates_existing_vacancy(dou: Source) -> None:
+    make_ingestor(dou).ingest([make_vacancy_data()])
 
-    stats = VacancyIngestor(dou, matcher=matcher, seen_at=LAST_SEEN).ingest(
+    stats = make_ingestor(dou, seen_at=LAST_SEEN).ingest(
         [
             make_vacancy_data(
                 title="Senior Python Developer",
@@ -107,20 +107,18 @@ def test_ingest_updates_existing_vacancy(dou: Source, matcher: SkillMatcher) -> 
 
 
 @pytest.mark.django_db
-def test_ingest_keeps_same_external_id_from_different_sources_apart(
-    dou: Source, matcher: SkillMatcher
-) -> None:
+def test_ingest_keeps_same_external_id_from_different_sources_apart(dou: Source) -> None:
     djinni = Source.objects.get(code="djinni")
 
-    VacancyIngestor(dou, matcher=matcher, seen_at=FIRST_SEEN).ingest([make_vacancy_data()])
-    VacancyIngestor(djinni, matcher=matcher, seen_at=FIRST_SEEN).ingest([make_vacancy_data()])
+    make_ingestor(dou).ingest([make_vacancy_data()])
+    make_ingestor(djinni).ingest([make_vacancy_data()])
 
     assert Vacancy.objects.count() == 2
 
 
 @pytest.mark.django_db
 def test_ingest_is_atomic(dou: Source) -> None:
-    ingestor = VacancyIngestor(dou, matcher=FailingMatcher({}), seen_at=FIRST_SEEN)
+    ingestor = make_ingestor(dou, matcher=FailingMatcher({}))
 
     with pytest.raises(RuntimeError, match="matcher failure"):
         ingestor.ingest([make_vacancy_data(), make_vacancy_data(external_id="2", title="Broken")])
@@ -175,3 +173,28 @@ def test_collect_from_source_records_unknown_collector(http_client: HttpClient) 
 
     assert run.status == ScrapeRun.Status.FAILED
     assert run.error.startswith("UnknownSourceError")
+
+
+@pytest.mark.django_db
+def test_ingest_normalizes_salary_to_usd(dou: Source) -> None:
+    make_ingestor(dou).ingest(
+        [make_vacancy_data(salary_text="від 40 000 грн", salary=SalaryRange(40000, None, "UAH"))]
+    )
+    vacancy = Vacancy.objects.get()
+    assert (vacancy.salary_min, vacancy.salary_max, vacancy.salary_currency) == (40000, None, "UAH")
+    assert (vacancy.salary_min_usd, vacancy.salary_max_usd) == (1000, None)
+
+    make_ingestor(dou, seen_at=LAST_SEEN).ingest([make_vacancy_data()])
+
+    vacancy.refresh_from_db()
+    assert vacancy.salary_min is None
+    assert vacancy.salary_currency == ""
+    assert vacancy.salary_min_usd is None
+
+
+@pytest.mark.django_db
+def test_database_rejects_inverted_salary_range(dou: Source) -> None:
+    make_ingestor(dou).ingest([make_vacancy_data()])
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Vacancy.objects.update(salary_min=5000, salary_max=1000)

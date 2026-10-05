@@ -5,6 +5,7 @@ from typing import ClassVar, override
 
 from core.http import HttpClient
 from vacancies.collectors.rss import FeedItem, parse_feed
+from vacancies.salary import SalaryRange
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -18,6 +19,7 @@ class VacancyData:
     locations: tuple[str, ...] = ()
     is_remote: bool | None = None
     salary_text: str = ""
+    salary: SalaryRange | None = None
     description: str = ""
     description_html: str = ""
 

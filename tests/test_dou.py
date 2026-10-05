@@ -8,6 +8,7 @@ from core.http import HttpClient
 from tests.utils import DOU_FEED_URL, read_fixture
 from vacancies.collectors.dou import DouCollector, DouTitle, parse_title
 from vacancies.collectors.rss import FeedFormatError, FeedItem
+from vacancies.salary import SalaryRange
 
 
 @pytest.mark.parametrize(
@@ -97,6 +98,25 @@ def test_collect_builds_vacancies_from_feed(
     assert vacancy.description.startswith("Hi there! AgileEngine")
     assert "Відгукнутись" not in vacancy.description
     assert "#reply-btn-id" in vacancy.description_html
+    assert vacancies[2].salary == SalaryRange(1200, 2800, "USD")
+    assert vacancies[0].salary is None
+
+
+def test_build_unescapes_double_encoded_title(http_client: HttpClient) -> None:
+    item = FeedItem(
+        title="QA Engineer [R&amp;D] в Acme, від&nbsp;$1500, Київ",
+        link="https://jobs.dou.ua/companies/acme/vacancies/1/",
+        description_html="",
+        published_at=datetime(2026, 10, 1, tzinfo=UTC),
+        categories=(),
+    )
+
+    vacancy = DouCollector(http_client).build(item, "QA")
+
+    assert vacancy.title == "QA Engineer [R&D]"
+    assert vacancy.salary_text == "від $1500"
+    assert vacancy.salary == SalaryRange(1500, None, "USD")
+    assert vacancy.locations == ("Київ",)
 
 
 def test_build_rejects_unexpected_link(http_client: HttpClient) -> None:

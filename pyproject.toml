@@ -68,7 +68,7 @@ addopts = "-ra --strict-markers --strict-config"
 filterwarnings = ["error"]
 
 [tool.coverage.run]
-source = ["config", "core", "vacancies"]
+source = ["config", "core", "market", "vacancies"]
 omit = ["*/migrations/*", "config/asgi.py", "config/wsgi.py"]
 
 [tool.coverage.report]

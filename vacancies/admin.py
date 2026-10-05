@@ -7,6 +7,7 @@ from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
 from vacancies.models import Company, ScrapeRun, Skill, Source, Vacancy
+from vacancies.salary import format_salary_range
 
 
 class VacancyCountAdmin[ModelT: Model](admin.ModelAdmin[ModelT]):
@@ -47,12 +48,12 @@ class VacancyAdmin(admin.ModelAdmin[Vacancy]):
         "title",
         "company",
         "source",
-        "salary_text",
+        "salary_usd",
         "is_remote",
         "published_at",
         "original",
     )
-    list_filter = ("source", "is_remote", "published_at", "skills")
+    list_filter = ("source", "is_remote", "salary_currency", "published_at", "skills")
     list_select_related = ("source", "company")
     search_fields = ("title", "company__name", "description")
     date_hierarchy = "published_at"
@@ -61,10 +62,24 @@ class VacancyAdmin(admin.ModelAdmin[Vacancy]):
     readonly_fields = ("original", "first_seen_at", "last_seen_at")
     fieldsets = (
         (None, {"fields": ("title", "company", "source", "external_id", "url", "original")}),
-        ("Details", {"fields": ("categories", "skills", "locations", "is_remote", "salary_text")}),
+        ("Details", {"fields": ("categories", "skills", "locations", "is_remote")}),
+        (
+            "Salary",
+            {
+                "fields": (
+                    "salary_text",
+                    ("salary_min", "salary_max", "salary_currency"),
+                    ("salary_min_usd", "salary_max_usd"),
+                )
+            },
+        ),
         ("Description", {"fields": ("description", "description_html")}),
         ("Timeline", {"fields": ("published_at", "first_seen_at", "last_seen_at")}),
     )
+
+    @admin.display(description="Salary, USD", ordering="salary_min_usd")
+    def salary_usd(self, obj: Vacancy) -> str:
+        return format_salary_range(obj.salary_min_usd, obj.salary_max_usd)
 
     @admin.display(description="Original")
     def original(self, obj: Vacancy) -> SafeString:
