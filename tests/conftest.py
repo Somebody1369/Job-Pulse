@@ -3,6 +3,7 @@ from collections.abc import Iterator
 import pytest
 import responses
 from django.conf import settings as django_settings
+from django.core.cache import cache
 from pytest_django.fixtures import Settings
 
 from core.http import HttpClient
@@ -18,6 +19,7 @@ def pytest_configure() -> None:
 
 @pytest.fixture(autouse=True)
 def _test_settings(settings: Settings) -> None:
+    cache.clear()
     settings.SCRAPER_MIN_INTERVAL = 0
     settings.SCRAPER_MAX_RETRIES = 0
 

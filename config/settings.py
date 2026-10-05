@@ -1,3 +1,4 @@
+from datetime import timedelta
 from pathlib import Path
 
 import django_stubs_ext
@@ -24,8 +25,14 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.postgres",
+    "rest_framework",
+    "rest_framework_simplejwt",
+    "django_filters",
+    "drf_spectacular",
     "analytics",
+    "api",
     "market",
+    "subscriptions",
     "vacancies",
 ]
 
@@ -164,4 +171,41 @@ CELERY_BEAT_SCHEDULE = {
         "task": "market.tasks.capture_market_snapshots",
         "schedule": crontab(hour="23", minute="30"),
     },
+}
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ),
+    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+    "DEFAULT_PAGINATION_CLASS": "api.pagination.StandardPagination",
+    "DEFAULT_FILTER_BACKENDS": (
+        "django_filters.rest_framework.DjangoFilterBackend",
+        "rest_framework.filters.OrderingFilter",
+    ),
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": env.str("API_ANON_RATE", default="120/minute"),
+        "user": env.str("API_USER_RATE", default="600/minute"),
+    },
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "JobPulse API",
+    "DESCRIPTION": (
+        "Vacancies from Ukrainian IT job boards, Djinni market statistics and DOU salary "
+        "surveys. Subscriber endpoints are reserved for the Telegram bot account."
+    ),
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
 }

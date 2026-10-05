@@ -1,4 +1,4 @@
-.PHONY: install env services up down migrate superuser collect enrich rates run worker beat test e2e lint format typecheck check
+.PHONY: install env services up down migrate superuser collect enrich rates run worker beat test e2e lint format typecheck schema check
 
 install:
 	uv sync
@@ -56,4 +56,7 @@ format:
 typecheck:
 	uv run mypy .
 
-check: lint typecheck test
+schema:
+	uv run python manage.py spectacular --validate --fail-on-warn --file /dev/null
+
+check: lint typecheck schema test

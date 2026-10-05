@@ -44,6 +44,8 @@ jobs:
         run: uv run mypy .
       - name: Check migrations
         run: uv run python manage.py makemigrations --check --dry-run
+      - name: Validate OpenAPI schema
+        run: uv run python manage.py spectacular --validate --fail-on-warn --file /dev/null
       - name: Test
         run: uv run pytest --cov
 

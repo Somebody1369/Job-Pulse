@@ -9,7 +9,11 @@ dependencies = [
     "celery[redis]>=5.6.3",
     "django>=6.1.1",
     "django-environ>=0.14.0",
+    "django-filter>=26.2",
     "django-stubs-ext>=6.1.2",
+    "djangorestframework>=3.18.1",
+    "djangorestframework-simplejwt>=5.5.1",
+    "drf-spectacular>=0.30.0",
     "gunicorn>=26.2.0",
     "lxml>=6.1.3",
     "openpyxl>=3.1.5",
@@ -22,6 +26,7 @@ dependencies = [
 dev = [
     "celery-types>=0.26.0",
     "django-stubs[compatible-mypy]>=6.1.2",
+    "djangorestframework-stubs>=3.18.1",
     "mypy>=2.4.0",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
@@ -51,17 +56,21 @@ allowed-confusables = ["–"]
 
 [tool.ruff.lint.per-file-ignores]
 "*/admin.py" = ["RUF012"]
-"tests/**" = ["S101", "PLR2004", "RUF001"]
+"tests/**" = ["S101", "S105", "S106", "PLR2004", "RUF001"]
 
 [tool.mypy]
 python_version = "3.13"
 strict = true
-plugins = ["mypy_django_plugin.main"]
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
 exclude = ["/migrations/", "^\\.venv/"]
 
 [[tool.mypy.overrides]]
-module = ["environ.*"]
+module = ["environ.*", "django_filters.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["api.filters"]
+disallow_subclassing_any = false
 
 [tool.django-stubs]
 django_settings_module = "config.settings"
@@ -74,7 +83,7 @@ filterwarnings = ["error"]
 markers = ["e2e: browser tests that drive a real Chrome through Selenium"]
 
 [tool.coverage.run]
-source = ["analytics", "config", "core", "market", "vacancies"]
+source = ["analytics", "api", "config", "core", "market", "subscriptions", "vacancies"]
 omit = ["*/migrations/*", "config/asgi.py", "config/wsgi.py"]
 
 [tool.coverage.report]
