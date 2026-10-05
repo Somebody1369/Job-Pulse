@@ -1,0 +1,63 @@
+{% extends "analytics/base.html" %}
+{% load static %}
+
+{% block title %}Ukrainian IT job market · JobPulse{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <h1>Ukrainian IT job market</h1>
+    <p class="lede">Daily Djinni market snapshots, DOU salary surveys and vacancies collected from DOU and Djinni.</p>
+  </header>
+
+  <form class="filters" method="get" id="filters">
+    <label>Language {{ form.language }}</label>
+    <label>Category {{ form.category }}</label>
+    <label>{{ form.days.label }} {{ form.days }}</label>
+    <button type="submit">Apply</button>
+  </form>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Candidates per vacancy</h2>
+      <div class="chart chart-tall"><canvas id="competition-chart" role="img" aria-label="Candidates per vacancy by category"></canvas></div>
+    </section>
+    <section class="card">
+      <h2>Market trend, last 90 days</h2>
+      {% if charts.trend.labels|length > 1 %}
+        <div class="chart chart-tall"><canvas id="trend-chart" role="img" aria-label="Candidates and vacancies over time"></canvas></div>
+      {% else %}
+        <p class="empty">Snapshots are captured every night. The trend appears after the second one.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  {% include "analytics/_table.html" with table=tables.market empty_message="Run capture_market_snapshots to load Djinni statistics." %}
+
+  <div class="grid">
+    <section class="card">
+      <h2>{{ dashboard.filters.language }} salaries by experience</h2>
+      <div class="chart"><canvas id="experience-chart" role="img" aria-label="Salary percentiles by years of experience"></canvas></div>
+    </section>
+    <section class="card">
+      <h2>{{ dashboard.filters.language }} median salary over time</h2>
+      <div class="chart"><canvas id="dynamics-chart" role="img" aria-label="Median salary by survey"></canvas></div>
+    </section>
+  </div>
+
+  {% include "analytics/_table.html" with table=tables.seniority empty_message="Run import_salary_surveys to load DOU surveys." %}
+  {% include "analytics/_table.html" with table=tables.experience empty_message="Run import_salary_surveys to load DOU surveys." %}
+  {% include "analytics/_table.html" with table=tables.dynamics empty_message="Run import_salary_surveys to load DOU surveys." %}
+
+  <section class="card">
+    <h2>Most requested skills</h2>
+    <div class="chart chart-tall"><canvas id="skills-chart" role="img" aria-label="Vacancies per skill in the current and previous period"></canvas></div>
+  </section>
+  {% include "analytics/_table.html" with table=tables.skills empty_message="Run collect_vacancies to load vacancies." %}
+
+  {{ charts|json_script:"chart-data" }}
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+  <script src="{% static 'analytics/dashboard.js' %}"></script>
+{% endblock %}

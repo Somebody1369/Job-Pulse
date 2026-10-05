@@ -1,0 +1,25 @@
+<section class="card table-card" id="table-{{ table.name }}">
+  <header class="card-header">
+    <h2>{{ table.title }}</h2>
+    <span class="exports">
+      <a href="{% url 'analytics:export' name=table.name extension='csv' %}{% if query %}?{{ query }}{% endif %}">CSV</a>
+      <a href="{% url 'analytics:export' name=table.name extension='xlsx' %}{% if query %}?{{ query }}{% endif %}">Excel</a>
+    </span>
+  </header>
+  {% if table.rows %}
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>{% for header in table.headers %}<th scope="col">{{ header }}</th>{% endfor %}</tr>
+        </thead>
+        <tbody>
+          {% for row in table.rows %}
+            <tr>{% for cell in row %}<td>{{ cell|default_if_none:"—" }}</td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="empty">{{ empty_message }}</p>
+  {% endif %}
+</section>

@@ -42,13 +42,6 @@ def test_scrape_runs_are_read_only(admin_client: Client) -> None:
     assert response.status_code == 403
 
 
-def test_root_redirects_to_admin(client: Client) -> None:
-    response = client.get("/")
-
-    assert response.status_code == 302
-    assert response["Location"] == reverse("admin:index")
-
-
 def test_vacancy_changelist_shows_cross_posted_vacancies(admin_client: Client) -> None:
     make_ingestor(Source.objects.get(code="djinni")).ingest([make_vacancy_data(external_id="7")])
     url = reverse("admin:vacancies_vacancy_changelist")

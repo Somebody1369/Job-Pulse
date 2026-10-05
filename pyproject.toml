@@ -12,6 +12,7 @@ dependencies = [
     "django-stubs-ext>=6.1.2",
     "gunicorn>=26.2.0",
     "lxml>=6.1.3",
+    "openpyxl>=3.1.5",
     "psycopg[binary]>=3.3.6",
     "requests>=2.34.2",
     "whitenoise>=6.12.0",
@@ -27,6 +28,7 @@ dev = [
     "pytest-django>=4.14.0",
     "responses>=0.26.3",
     "ruff>=0.16.10",
+    "types-openpyxl>=3.1.5.20260827",
     "types-requests>=2.33.0.20260906",
 ]
 
@@ -70,7 +72,7 @@ addopts = "-ra --strict-markers --strict-config"
 filterwarnings = ["error"]
 
 [tool.coverage.run]
-source = ["config", "core", "market", "vacancies"]
+source = ["analytics", "config", "core", "market", "vacancies"]
 omit = ["*/migrations/*", "config/asgi.py", "config/wsgi.py"]
 
 [tool.coverage.report]
