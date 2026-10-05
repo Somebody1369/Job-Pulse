@@ -16,12 +16,13 @@ JobPulse collects vacancies from Ukrainian IT job boards, normalizes them and tu
 - Imports five DOU salary surveys (2024–2026, 64k responses) and computes medians and quartiles in PostgreSQL
 - Analytics dashboard with competition, trends, salaries by seniority and experience, salary dynamics and skill demand, each table exportable to CSV and Excel
 - Versioned REST API with filters, full-text search, OpenAPI documentation and JWT-protected endpoints for subscriptions and notifications
+- Telegram bot that sends new vacancies matching a subscription, answers market and salary questions and delivers a weekly report rendered with Selenium
 - Records every collection and enrichment run with its status, counts, duration and error
 - Provides a Django admin to browse vacancies, companies, skills, exchange rates and run history
 
 ## Tech stack
 
-Python 3.13 · Django 6.1 · Django REST Framework · PostgreSQL 18 · Celery + Redis · Requests · BeautifulSoup + lxml · Selenium · Chart.js · openpyxl · Docker · uv · pytest · ruff · mypy (strict) · GitHub Actions
+Python 3.13 · Django 6.1 · Django REST Framework · PostgreSQL 18 · Celery + Redis · aiogram 3 · httpx · Requests · BeautifulSoup + lxml · Selenium · Chart.js · openpyxl · Docker · uv · pytest · ruff · mypy (strict) · GitHub Actions
 
 ## Architecture
 
@@ -43,6 +44,7 @@ core/          HTTP client, robots.txt policy, advisory locks, percentile aggreg
 market/        Exchange rates, Djinni market snapshots, DOU salary surveys
 analytics/     Dashboard queries, page, charts and exports
 api/           REST API: serializers, filters, permissions, OpenAPI schema
+bot/           Telegram bot: API client, handlers, notifications, weekly schedule
 subscriptions/ Subscribers, subscriptions and delivered notifications
 vacancies/
   collectors/  RSS, HTML and JSON-LD parsing, one collector per job board
@@ -82,6 +84,28 @@ curl "http://localhost:8000/api/v1/vacancies/?skills=python,django&remote=true&m
 ```
 
 Public endpoints are rate limited. Bot endpoints require an account with the `access_bot_api` permission, created with `create_bot_account`.
+
+## Telegram bot
+
+The bot is a separate asyncio process built with aiogram 3. It never touches the database and works only through the REST API with its own JWT-authenticated account.
+
+| Command | What it does |
+|---|---|
+| `/subscribe` | Step-by-step subscription: skills, remote only, minimum salary, required experience |
+| `/subscriptions` | Pause, resume or delete subscriptions |
+| `/search django remote` | Top vacancies from full-text search |
+| `/market python` | Candidates, vacancies, competition and salary ranges on Djinni |
+| `/salary python 3` | DOU salary percentiles, highlighting the matching experience |
+| `/report`, `/weekly` | The dashboard as an image now or every Monday at 10:00 |
+| `/forget` | Delete the user's subscriptions and data |
+
+Every few minutes the bot asks the API for new vacancies matching active subscriptions, sends them and acknowledges the deliveries, so a vacancy posted on both DOU and Djinni arrives once. Users who block the bot are forgotten automatically.
+
+To run it:
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) and put the token into `TELEGRAM_BOT_TOKEN` in `.env`.
+2. Set `BOT_API_PASSWORD` in `.env` and create the API account with `make bot-account`.
+3. Start it with `make bot` locally or `docker compose --profile bot up -d` in Docker.
 
 ## Data sources
 
@@ -140,6 +164,7 @@ Run `make worker` and `make beat` in separate terminals to enable the schedule.
 | `rematch_skills` | Recalculate vacancy skills after editing the skill dictionary |
 | `capture_market_snapshots [-c CATEGORY]` | Save today's Djinni market statistics |
 | `import_salary_surveys [-s NAME]` | Import DOU salary surveys such as `2026_june` |
+| `render_dashboard_report` | Save a screenshot of the dashboard for the weekly report |
 | `create_bot_account [--username NAME]` | Create the API account for the Telegram bot, the password is taken from `BOT_API_PASSWORD` or generated |
 
 Collection commands exit with a non-zero code if any source fails, so they can also run under cron.
@@ -152,6 +177,9 @@ Collection commands exit with a non-zero code if any source fails, so they can a
 | Enrich vacancies | Every hour at :20 and :50 |
 | Update exchange rates | 09:00 and 17:00 |
 | Capture market snapshots | 23:30 |
+| Render the dashboard report | Monday 09:00 |
+| Send the weekly report (bot) | Monday 10:00 |
+| Deliver vacancy notifications (bot) | Every 5 minutes |
 
 ## Configuration
 
@@ -170,6 +198,11 @@ Collection commands exit with a non-zero code if any source fails, so they can a
 | `SCRAPER_MIN_INTERVAL` | `1.0` | Minimum delay between requests to the same host, in seconds |
 | `SCRAPER_MAX_RETRIES` | `3` | Retries for 429 and 5xx responses |
 | `SCRAPER_CONNECT_TIMEOUT` / `SCRAPER_READ_TIMEOUT` | `5` / `30` | Request timeouts, in seconds |
+| `TELEGRAM_BOT_TOKEN` | — | Token from @BotFather |
+| `BOT_API_USERNAME` / `BOT_API_PASSWORD` | `telegram-bot` / — | API account of the bot |
+| `JOBPULSE_API_URL` | `http://localhost:8000/api/v1/` | API base URL used by the bot |
+| `BOT_NOTIFY_INTERVAL` | `300` | Seconds between notification checks |
+| `REPORT_DASHBOARD_URL` | `http://localhost:8000/analytics/` | Page captured for the weekly report |
 | `API_ANON_RATE` / `API_USER_RATE` | `120/minute` / `600/minute` | API rate limits |
 | `POSTGRES_PORT` / `REDIS_PORT` | `5433` / `6379` | Host ports of the Compose services |
 
@@ -189,7 +222,7 @@ Runs ruff, mypy in strict mode, strict OpenAPI schema validation and the pytest 
 2. ~~Salary normalization, job page enrichment, cross-source deduplication, full-text search, scheduling~~
 3. ~~Market analytics: Djinni market snapshots, DOU salary surveys, dashboard, exports, Selenium end-to-end test~~
 4. ~~REST API with Django REST Framework, JWT and OpenAPI documentation~~
-5. Telegram bot with subscriptions and market reports
+5. ~~Telegram bot with subscriptions, notifications and weekly reports rendered with Selenium~~
 6. More sources: Greenhouse, Lever, Remotive, Freelancehunt, Work.ua
 7. Candidate profiles and vacancy matching
 8. More end-to-end coverage and a demo deployment

@@ -61,6 +61,7 @@ allowed-confusables = ["–"]
 [tool.ruff.lint.per-file-ignores]
 "*/admin.py" = ["RUF012"]
 "tests/**" = ["S101", "S105", "S106", "PLR2004", "RUF001"]
+"bot/texts.py" = ["RUF001"]
 
 [tool.mypy]
 python_version = "3.13"
@@ -85,9 +86,11 @@ testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
 filterwarnings = ["error"]
 markers = ["e2e: browser tests that drive a real Chrome through Selenium"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
-source = ["analytics", "api", "config", "core", "market", "subscriptions", "vacancies"]
+source = ["analytics", "api", "bot", "config", "core", "market", "subscriptions", "vacancies"]
 omit = ["*/migrations/*", "config/asgi.py", "config/wsgi.py"]
 
 [tool.coverage.report]

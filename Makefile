@@ -1,4 +1,4 @@
-.PHONY: install env services up down migrate superuser collect enrich rates run worker beat test e2e lint format typecheck schema check
+.PHONY: install env services up down migrate superuser collect enrich rates run worker beat bot bot-account test e2e lint format typecheck schema check
 
 install:
 	uv sync
@@ -38,6 +38,12 @@ worker:
 
 beat:
 	uv run celery --app config beat --loglevel INFO
+
+bot-account:
+	uv run python manage.py create_bot_account
+
+bot:
+	uv run python -m bot
 
 test:
 	uv run pytest --cov

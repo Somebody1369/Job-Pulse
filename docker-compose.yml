@@ -15,6 +15,7 @@ x-app: &app
       condition: service_healthy
     redis:
       condition: service_healthy
+  restart: unless-stopped
 
 services:
   db:
@@ -59,6 +60,24 @@ services:
   beat:
     <<: *app
     command: celery --app config beat --loglevel INFO --schedule /tmp/celerybeat-schedule
+
+  bot:
+    build:
+      context: .
+      target: app
+    env_file: .env
+    environment:
+      JOBPULSE_API_URL: http://web:8000/api/v1/
+      BOT_REDIS_URL: redis://redis:6379/1
+    command: python -m bot
+    depends_on:
+      web:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - bot
 
 volumes:
   postgres-data:

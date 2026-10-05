@@ -177,7 +177,7 @@ def salary_by_experience(survey: SalarySurvey, language: str) -> list[SalaryRow]
 
 def salary_dynamics(language: str) -> list[SalaryPoint]:
     rows = (
-        SalaryResponse.objects.filter(programming_language=language)
+        SalaryResponse.objects.filter(programming_language__iexact=language)
         .values("survey__period")
         .annotate(responses=Count("id"), median=Median("salary_usd"))
         .filter(responses__gte=MIN_RESPONSES)
@@ -192,7 +192,7 @@ def salary_dynamics(language: str) -> list[SalaryPoint]:
 
 
 def _salaries(survey: SalarySurvey, language: str) -> QuerySet[SalaryResponse]:
-    return SalaryResponse.objects.filter(survey=survey, programming_language=language)
+    return SalaryResponse.objects.filter(survey=survey, programming_language__iexact=language)
 
 
 def _salary_groups(
