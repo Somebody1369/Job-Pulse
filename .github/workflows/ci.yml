@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: jobpulse
+          POSTGRES_USER: jobpulse
+          POSTGRES_PASSWORD: jobpulse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jobpulse -d jobpulse"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DJANGO_SECRET_KEY: ci-secret-key
+      DATABASE_URL: postgres://jobpulse:jobpulse@localhost:5432/jobpulse
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Type check
+        run: uv run mypy .
+      - name: Check migrations
+        run: uv run python manage.py makemigrations --check --dry-run
+      - name: Test
+        run: uv run pytest --cov
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build image
+        run: docker build --tag jobpulse:ci .
