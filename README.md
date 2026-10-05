@@ -130,7 +130,7 @@ Every request carries an identifiable `User-Agent`. Job pages are fetched only w
 ### Docker
 
 ```bash
-cp .env.example .env
+make env
 docker compose up -d --build --wait
 docker compose exec web python manage.py createsuperuser
 docker compose exec web python manage.py update_exchange_rates

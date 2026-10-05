@@ -4,7 +4,7 @@ install:
 	uv sync
 
 env:
-	test -f .env || cp .env.example .env
+	test -f .env || sed "s/^DJANGO_SECRET_KEY=.*/DJANGO_SECRET_KEY=$$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')/" .env.example > .env
 
 services:
 	docker compose up -d --wait db redis

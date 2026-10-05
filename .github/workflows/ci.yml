@@ -27,7 +27,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     env:
-      DJANGO_SECRET_KEY: ci-secret-key
+      DJANGO_SECRET_KEY: ci-only-secret-key-long-enough-to-sign-hs256-tokens-safely
       DATABASE_URL: postgres://jobpulse:jobpulse@localhost:5432/jobpulse
     steps:
       - uses: actions/checkout@v7
