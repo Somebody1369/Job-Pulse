@@ -24,6 +24,21 @@ class VacancyData:
     description_html: str = ""
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class VacancyDetails:
+    company: str = ""
+    company_website: str = ""
+    locations: tuple[str, ...] = ()
+    is_remote: bool | None = None
+    salary: SalaryRange | None = None
+    experience_months: int | None = None
+    english_level: str = ""
+
+
+class DetailsParseError(ValueError):
+    pass
+
+
 class Collector(ABC):
     source_code: ClassVar[str]
 
@@ -47,3 +62,8 @@ class RssCollector(Collector):
 
     @abstractmethod
     def build(self, item: FeedItem, category: str) -> VacancyData: ...
+
+
+class DetailsCollector(ABC):
+    @abstractmethod
+    def fetch_details(self, url: str) -> VacancyDetails: ...

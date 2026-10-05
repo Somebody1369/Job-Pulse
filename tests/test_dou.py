@@ -8,7 +8,7 @@ from core.http import HttpClient
 from tests.utils import DOU_FEED_URL, read_fixture
 from vacancies.collectors.dou import DouCollector, DouTitle, parse_title
 from vacancies.collectors.rss import FeedFormatError, FeedItem
-from vacancies.salary import SalaryRange
+from vacancies.salary import NO_SALARY, SalaryRange
 
 
 @pytest.mark.parametrize(
@@ -99,7 +99,7 @@ def test_collect_builds_vacancies_from_feed(
     assert "Відгукнутись" not in vacancy.description
     assert "#reply-btn-id" in vacancy.description_html
     assert vacancies[2].salary == SalaryRange(1200, 2800, "USD")
-    assert vacancies[0].salary is None
+    assert vacancies[0].salary == NO_SALARY
 
 
 def test_build_unescapes_double_encoded_title(http_client: HttpClient) -> None:

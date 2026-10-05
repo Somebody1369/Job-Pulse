@@ -1,20 +1,35 @@
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
+from typing import Final
 
+import requests
+from django.conf import settings
 from django.db import transaction
 from django.utils.text import slugify
 
 from core.http import HttpClient
+from core.robots import RobotsPolicy, UrlPolicy
 from market.services import UsdConverter
-from vacancies.collectors.base import VacancyData
-from vacancies.collectors.registry import get_collector_class
+from vacancies.collectors.base import (
+    DetailsCollector,
+    DetailsParseError,
+    VacancyData,
+    VacancyDetails,
+)
+from vacancies.collectors.registry import UnknownSourceError, get_collector_class
 from vacancies.models import Company, ScrapeRun, Skill, Source, Vacancy
-from vacancies.salary import NO_SALARY, SalaryRange
+from vacancies.salary import SalaryRange, format_salary_range
 from vacancies.skills import SkillMatcher
 
+GONE_STATUSES: Final = frozenset({404, 410})
+
 logger = logging.getLogger(__name__)
+
+
+class DetailsNotSupportedError(LookupError):
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +37,7 @@ class IngestStats:
     fetched: int
     created: int
     updated: int
+    failed: int = 0
 
 
 def merge_duplicates(items: Iterable[VacancyData]) -> dict[str, VacancyData]:
@@ -32,6 +48,60 @@ def merge_duplicates(items: Iterable[VacancyData]) -> dict[str, VacancyData]:
             item if known is None else replace(item, categories=known.categories | item.categories)
         )
     return merged
+
+
+def format_salary(salary: SalaryRange) -> str:
+    if salary.minimum is None and salary.maximum is None:
+        return ""
+    return f"{format_salary_range(salary.minimum, salary.maximum)} {salary.currency}"
+
+
+class CompanyResolver:
+    def __init__(self) -> None:
+        self._cache: dict[str, Company] = {}
+
+    def resolve(self, name: str, website: str = "") -> Company | None:
+        slug = slugify(name, allow_unicode=True)
+        if not slug:
+            return None
+        company = self._cache.get(slug)
+        if company is None:
+            company, _ = Company.objects.get_or_create(
+                slug=slug, defaults={"name": name, "website": website}
+            )
+            self._cache[slug] = company
+        if website and not company.website:
+            company.website = website
+            company.save(update_fields=("website",))
+        return company
+
+
+class VacancyWriter:
+    def __init__(self, *, converter: UsdConverter) -> None:
+        self._converter = converter
+        self._companies = CompanyResolver()
+
+    def apply_company(self, vacancy: Vacancy, name: str, website: str = "") -> None:
+        if name:
+            vacancy.company = self._companies.resolve(name, website)
+
+    def apply_location(
+        self, vacancy: Vacancy, locations: tuple[str, ...], is_remote: bool | None
+    ) -> None:
+        if locations:
+            vacancy.locations = list(locations)
+        if is_remote is not None:
+            vacancy.is_remote = is_remote
+
+    def apply_salary(self, vacancy: Vacancy, salary: SalaryRange | None, text: str = "") -> None:
+        if salary is None:
+            return
+        vacancy.salary_text = text or format_salary(salary)
+        vacancy.salary_min = salary.minimum
+        vacancy.salary_max = salary.maximum
+        vacancy.salary_currency = salary.currency
+        vacancy.salary_min_usd = self._converter.convert(salary.minimum, salary.currency)
+        vacancy.salary_max_usd = self._converter.convert(salary.maximum, salary.currency)
 
 
 class VacancyIngestor:
@@ -45,9 +115,8 @@ class VacancyIngestor:
     ) -> None:
         self._source = source
         self._matcher = matcher
-        self._converter = converter
+        self._writer = VacancyWriter(converter=converter)
         self._seen_at = seen_at
-        self._companies: dict[str, Company] = {}
 
     @transaction.atomic
     def ingest(self, items: Iterable[VacancyData]) -> IngestStats:
@@ -78,34 +147,78 @@ class VacancyIngestor:
     def _apply(self, vacancy: Vacancy, data: VacancyData) -> None:
         vacancy.url = data.url
         vacancy.title = data.title
-        vacancy.company = self._resolve_company(data.company)
         vacancy.categories = sorted({*vacancy.categories, *data.categories})
-        vacancy.locations = list(data.locations)
-        vacancy.is_remote = data.is_remote
-        vacancy.salary_text = data.salary_text
-        self._apply_salary(vacancy, data.salary)
         vacancy.description = data.description
         vacancy.description_html = data.description_html
         vacancy.published_at = data.published_at
         vacancy.last_seen_at = self._seen_at
+        self._writer.apply_company(vacancy, data.company)
+        self._writer.apply_location(vacancy, data.locations, data.is_remote)
+        self._writer.apply_salary(vacancy, data.salary, data.salary_text)
 
-    def _apply_salary(self, vacancy: Vacancy, salary: SalaryRange | None) -> None:
-        effective = salary or NO_SALARY
-        vacancy.salary_min = effective.minimum
-        vacancy.salary_max = effective.maximum
-        vacancy.salary_currency = effective.currency
-        vacancy.salary_min_usd = self._converter.convert(effective.minimum, effective.currency)
-        vacancy.salary_max_usd = self._converter.convert(effective.maximum, effective.currency)
 
-    def _resolve_company(self, name: str) -> Company | None:
-        slug = slugify(name, allow_unicode=True)
-        if not slug:
-            return None
-        if slug not in self._companies:
-            self._companies[slug], _ = Company.objects.get_or_create(
-                slug=slug, defaults={"name": name}
-            )
-        return self._companies[slug]
+class VacancyEnricher:
+    def __init__(
+        self,
+        collector: DetailsCollector,
+        robots: UrlPolicy,
+        *,
+        converter: UsdConverter,
+        fetched_at: datetime,
+    ) -> None:
+        self._collector = collector
+        self._robots = robots
+        self._writer = VacancyWriter(converter=converter)
+        self._fetched_at = fetched_at
+
+    def enrich(self, vacancies: Iterable[Vacancy]) -> IngestStats:
+        checked = enriched = 0
+        for vacancy in vacancies:
+            checked += 1
+            if self._enrich_one(vacancy):
+                enriched += 1
+        return IngestStats(fetched=checked, created=0, updated=enriched, failed=checked - enriched)
+
+    def _enrich_one(self, vacancy: Vacancy) -> bool:
+        if not self._robots.is_allowed(vacancy.url):
+            logger.info("robots.txt disallows %s", vacancy.url)
+            self._mark_fetched(vacancy)
+            return False
+        try:
+            details = self._collector.fetch_details(vacancy.url)
+        except requests.HTTPError as exc:
+            logger.warning("Failed to fetch %s: %s", vacancy.url, exc)
+            if exc.response is not None and exc.response.status_code in GONE_STATUSES:
+                self._mark_fetched(vacancy)
+            return False
+        except (requests.RequestException, DetailsParseError) as exc:
+            logger.warning("Failed to fetch %s: %s", vacancy.url, exc)
+            return False
+        self._apply(vacancy, details)
+        return True
+
+    def _apply(self, vacancy: Vacancy, details: VacancyDetails) -> None:
+        self._writer.apply_company(vacancy, details.company, details.company_website)
+        self._writer.apply_location(vacancy, details.locations, details.is_remote)
+        self._writer.apply_salary(vacancy, details.salary)
+        if details.experience_months is not None:
+            vacancy.experience_months = details.experience_months
+        if details.english_level:
+            vacancy.english_level = details.english_level
+        vacancy.details_fetched_at = self._fetched_at
+        vacancy.save()
+
+    def _mark_fetched(self, vacancy: Vacancy) -> None:
+        vacancy.details_fetched_at = self._fetched_at
+        vacancy.save(update_fields=("details_fetched_at",))
+
+
+def supports_details(source: Source) -> bool:
+    try:
+        collector_class = get_collector_class(source.code)
+    except UnknownSourceError:
+        return False
+    return issubclass(collector_class, DetailsCollector)
 
 
 def collect_from_source(
@@ -115,7 +228,8 @@ def collect_from_source(
     http: HttpClient,
 ) -> ScrapeRun:
     run = ScrapeRun.objects.create(source=source, categories=list(categories))
-    try:
+
+    def collect() -> IngestStats:
         collector = get_collector_class(source.code)(http)
         items = [item for category in categories for item in collector.collect(category)]
         ingestor = VacancyIngestor(
@@ -124,17 +238,47 @@ def collect_from_source(
             converter=UsdConverter.from_latest_rates(),
             seen_at=run.started_at,
         )
-        stats = ingestor.ingest(items)
+        return ingestor.ingest(items)
+
+    return _execute(run, collect)
+
+
+def enrich_from_source(source: Source, *, http: HttpClient, limit: int) -> ScrapeRun:
+    run = ScrapeRun.objects.create(source=source, kind=ScrapeRun.Kind.DETAILS)
+
+    def enrich() -> IngestStats:
+        collector = get_collector_class(source.code)(http)
+        if not isinstance(collector, DetailsCollector):
+            raise DetailsNotSupportedError(f"Source {source.code!r} has no details collector")
+        pending = source.vacancies.filter(details_fetched_at__isnull=True).order_by(
+            "-published_at"
+        )[:limit]
+        enricher = VacancyEnricher(
+            collector,
+            RobotsPolicy(http, settings.SCRAPER_USER_AGENT),
+            converter=UsdConverter.from_latest_rates(),
+            fetched_at=run.started_at,
+        )
+        return enricher.enrich(pending)
+
+    return _execute(run, enrich)
+
+
+def _execute(run: ScrapeRun, operation: Callable[[], IngestStats]) -> ScrapeRun:
+    try:
+        stats = operation()
     except Exception as exc:
-        logger.exception("Collection from %s failed", source.code)
+        logger.exception("%s run for %s failed", run.get_kind_display(), run.source.code)
         run.mark_failed(exc)
     else:
         run.mark_succeeded(stats)
         logger.info(
-            "Collected %d vacancies from %s: %d new, %d updated",
+            "%s run for %s: %d vacancies, %d new, %d updated, %d failed",
+            run.get_kind_display(),
+            run.source.code,
             stats.fetched,
-            source.code,
             stats.created,
             stats.updated,
+            stats.failed,
         )
     return run

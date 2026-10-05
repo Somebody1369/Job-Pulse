@@ -1,14 +1,47 @@
 import re
-from typing import override
+from dataclasses import replace
+from typing import Final, override
 
-from vacancies.collectors.base import RssCollector, VacancyData
+from bs4 import BeautifulSoup
+
+from vacancies.collectors.base import (
+    DetailsCollector,
+    DetailsParseError,
+    RssCollector,
+    VacancyData,
+    VacancyDetails,
+)
 from vacancies.collectors.html import html_to_text
+from vacancies.collectors.jsonld import details_from_job_posting, find_job_posting
 from vacancies.collectors.rss import FeedFormatError, FeedItem
 
+ENGLISH_LABELS: Final = frozenset({"англійська", "english"})
+
 _JOB_ID = re.compile(r"/jobs/(?P<id>\d+)-")
+_CEFR_LEVEL = re.compile(r"\b(?P<level>[ABC][12])\b")
 
 
-class DjinniCollector(RssCollector):
+def parse_job_page(markup: bytes | str) -> VacancyDetails:
+    soup = BeautifulSoup(markup, "lxml")
+    posting = find_job_posting(soup)
+    if posting is None:
+        raise DetailsParseError("Job page has no JobPosting structured data")
+    return replace(details_from_job_posting(posting), english_level=_english_level(soup))
+
+
+def _english_level(soup: BeautifulSoup) -> str:
+    for row in soup.select(".detail-rows__line"):
+        name = row.select_one(".detail-rows__name")
+        value = row.select_one(".detail-rows__value")
+        if name is None or value is None:
+            continue
+        if name.get_text(strip=True).casefold() in ENGLISH_LABELS:
+            match = _CEFR_LEVEL.search(value.get_text())
+            return match["level"] if match else ""
+    return ""
+
+
+class DjinniCollector(RssCollector, DetailsCollector):
     source_code = "djinni"
     feed_url = "https://djinni.co/jobs/rss/"
 
@@ -27,6 +60,10 @@ class DjinniCollector(RssCollector):
             description_html=item.description_html,
             published_at=item.published_at,
         )
+
+    @override
+    def fetch_details(self, url: str) -> VacancyDetails:
+        return parse_job_page(self._http.get(url).content)
 
     @staticmethod
     def _external_id(link: str) -> str:

@@ -87,7 +87,7 @@ def test_reports_failed_sources_and_keeps_collecting(
     mock_djinni(mocked_responses, status=500)
     errors = StringIO()
 
-    with pytest.raises(CommandError, match="Collection failed for: djinni"):
+    with pytest.raises(CommandError, match="Processing failed for: djinni"):
         call_command("collect_vacancies", stdout=StringIO(), stderr=errors)
 
     assert "djinni: HTTPError: 500" in errors.getvalue()

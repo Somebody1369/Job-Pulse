@@ -102,3 +102,4 @@ SCRAPER_BACKOFF_FACTOR: float = env.float("SCRAPER_BACKOFF_FACTOR", default=1.0)
 SCRAPER_MIN_INTERVAL: float = env.float("SCRAPER_MIN_INTERVAL", default=1.0)
 
 VACANCY_CATEGORIES: list[str] = env.list("VACANCY_CATEGORIES", default=["Python"])
+VACANCY_DETAILS_BATCH_SIZE: int = env.int("VACANCY_DETAILS_BATCH_SIZE", default=50)

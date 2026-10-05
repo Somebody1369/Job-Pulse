@@ -7,7 +7,7 @@ from urllib.parse import urlsplit, urlunsplit
 from vacancies.collectors.base import RssCollector, VacancyData
 from vacancies.collectors.html import html_to_text
 from vacancies.collectors.rss import FeedFormatError, FeedItem
-from vacancies.salary import parse_salary
+from vacancies.salary import NO_SALARY, parse_salary
 
 COMPANY_SEPARATOR: Final = " в "
 DETAILS_SEPARATOR: Final = ", "
@@ -74,7 +74,7 @@ class DouCollector(RssCollector):
             locations=title.locations,
             is_remote=title.is_remote,
             salary_text=title.salary_text,
-            salary=parse_salary(title.salary_text),
+            salary=parse_salary(title.salary_text) or NO_SALARY,
             description=html_to_text(item.description_html, exclude=REPLY_LINK_SELECTOR),
             description_html=item.description_html,
             published_at=item.published_at,

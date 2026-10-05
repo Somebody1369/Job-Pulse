@@ -34,6 +34,7 @@ class Source(models.Model):
 class Company(models.Model):
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True, allow_unicode=True)
+    website = models.URLField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -62,6 +63,14 @@ class Skill(models.Model):
 
 
 class Vacancy(models.Model):
+    class EnglishLevel(models.TextChoices):
+        A1 = "A1", "A1 Beginner"
+        A2 = "A2", "A2 Elementary"
+        B1 = "B1", "B1 Intermediate"
+        B2 = "B2", "B2 Upper-intermediate"
+        C1 = "C1", "C1 Advanced"
+        C2 = "C2", "C2 Proficient"
+
     source = models.ForeignKey(Source, on_delete=models.PROTECT, related_name="vacancies")
     external_id = models.CharField(max_length=64)
     url = models.URLField(max_length=1000)
@@ -82,12 +91,15 @@ class Vacancy(models.Model):
     salary_currency = models.CharField(max_length=3, blank=True)
     salary_min_usd = models.PositiveIntegerField(null=True, blank=True)
     salary_max_usd = models.PositiveIntegerField(null=True, blank=True)
+    experience_months = models.PositiveSmallIntegerField(null=True, blank=True)
+    english_level = models.CharField(max_length=2, choices=EnglishLevel, blank=True)
     description = models.TextField(blank=True)
     description_html = models.TextField(blank=True)
     skills = models.ManyToManyField(Skill, related_name="vacancies", blank=True)
     published_at = models.DateTimeField()
     first_seen_at = models.DateTimeField(default=timezone.now)
     last_seen_at = models.DateTimeField(default=timezone.now)
+    details_fetched_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ("-published_at",)
@@ -114,12 +126,17 @@ class Vacancy(models.Model):
 
 
 class ScrapeRun(models.Model):
+    class Kind(models.TextChoices):
+        FEED = "feed", "Feed"
+        DETAILS = "details", "Details"
+
     class Status(models.TextChoices):
         RUNNING = "running", "Running"
         SUCCEEDED = "succeeded", "Succeeded"
         FAILED = "failed", "Failed"
 
     source = models.ForeignKey(Source, on_delete=models.CASCADE, related_name="runs")
+    kind = models.CharField(max_length=16, choices=Kind, default=Kind.FEED)
     categories = ArrayField(models.CharField(max_length=64), default=list, blank=True)
     status = models.CharField(max_length=16, choices=Status, default=Status.RUNNING)
     started_at = models.DateTimeField(default=timezone.now)
@@ -127,6 +144,7 @@ class ScrapeRun(models.Model):
     fetched_count = models.PositiveIntegerField(default=0)
     created_count = models.PositiveIntegerField(default=0)
     updated_count = models.PositiveIntegerField(default=0)
+    failed_count = models.PositiveIntegerField(default=0)
     error = models.TextField(blank=True)
 
     class Meta:
@@ -149,6 +167,7 @@ class ScrapeRun(models.Model):
         self.fetched_count = stats.fetched
         self.created_count = stats.created
         self.updated_count = stats.updated
+        self.failed_count = stats.failed
         self.finished_at = timezone.now()
         self.save(
             update_fields=(
@@ -156,6 +175,7 @@ class ScrapeRun(models.Model):
                 "fetched_count",
                 "created_count",
                 "updated_count",
+                "failed_count",
                 "finished_at",
             )
         )

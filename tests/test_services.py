@@ -14,7 +14,7 @@ from tests.utils import (
     read_fixture,
 )
 from vacancies.models import Company, ScrapeRun, Source, Vacancy
-from vacancies.salary import SalaryRange
+from vacancies.salary import NO_SALARY, SalaryRange
 from vacancies.services import (
     IngestStats,
     collect_from_source,
@@ -184,12 +184,37 @@ def test_ingest_normalizes_salary_to_usd(dou: Source) -> None:
     assert (vacancy.salary_min, vacancy.salary_max, vacancy.salary_currency) == (40000, None, "UAH")
     assert (vacancy.salary_min_usd, vacancy.salary_max_usd) == (1000, None)
 
-    make_ingestor(dou, seen_at=LAST_SEEN).ingest([make_vacancy_data()])
+    make_ingestor(dou, seen_at=LAST_SEEN).ingest([make_vacancy_data(salary=NO_SALARY)])
 
     vacancy.refresh_from_db()
+    assert vacancy.salary_text == ""
     assert vacancy.salary_min is None
     assert vacancy.salary_currency == ""
     assert vacancy.salary_min_usd is None
+
+
+@pytest.mark.django_db
+def test_ingest_keeps_known_fields_when_feed_omits_them(dou: Source) -> None:
+    make_ingestor(dou).ingest(
+        [
+            make_vacancy_data(
+                company="Acme",
+                locations=("Київ",),
+                is_remote=True,
+                salary=SalaryRange(2000, 3000, "USD"),
+            )
+        ]
+    )
+
+    make_ingestor(dou, seen_at=LAST_SEEN).ingest([make_vacancy_data(company="")])
+
+    vacancy = Vacancy.objects.select_related("company").get()
+    assert vacancy.company is not None
+    assert vacancy.company.name == "Acme"
+    assert vacancy.locations == ["Київ"]
+    assert vacancy.is_remote is True
+    assert (vacancy.salary_min, vacancy.salary_max) == (2000, 3000)
+    assert vacancy.salary_text == "2000–3000 USD"
 
 
 @pytest.mark.django_db

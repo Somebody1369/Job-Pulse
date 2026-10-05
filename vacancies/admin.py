@@ -29,7 +29,7 @@ class SourceAdmin(VacancyCountAdmin[Source]):
 
 @admin.register(Company)
 class CompanyAdmin(VacancyCountAdmin[Company]):
-    list_display = ("name", "vacancy_count", "created_at")
+    list_display = ("name", "website", "vacancy_count", "created_at")
     search_fields = ("name",)
     readonly_fields = ("slug", "created_at")
 
@@ -53,16 +53,35 @@ class VacancyAdmin(admin.ModelAdmin[Vacancy]):
         "published_at",
         "original",
     )
-    list_filter = ("source", "is_remote", "salary_currency", "published_at", "skills")
+    list_filter = (
+        "source",
+        "is_remote",
+        "english_level",
+        "salary_currency",
+        "published_at",
+        "skills",
+    )
     list_select_related = ("source", "company")
     search_fields = ("title", "company__name", "description")
     date_hierarchy = "published_at"
     autocomplete_fields = ("company",)
     filter_horizontal = ("skills",)
-    readonly_fields = ("original", "first_seen_at", "last_seen_at")
+    readonly_fields = ("original", "first_seen_at", "last_seen_at", "details_fetched_at")
     fieldsets = (
         (None, {"fields": ("title", "company", "source", "external_id", "url", "original")}),
-        ("Details", {"fields": ("categories", "skills", "locations", "is_remote")}),
+        (
+            "Details",
+            {
+                "fields": (
+                    "categories",
+                    "skills",
+                    "locations",
+                    "is_remote",
+                    "experience_months",
+                    "english_level",
+                )
+            },
+        ),
         (
             "Salary",
             {
@@ -74,7 +93,10 @@ class VacancyAdmin(admin.ModelAdmin[Vacancy]):
             },
         ),
         ("Description", {"fields": ("description", "description_html")}),
-        ("Timeline", {"fields": ("published_at", "first_seen_at", "last_seen_at")}),
+        (
+            "Timeline",
+            {"fields": ("published_at", "first_seen_at", "last_seen_at", "details_fetched_at")},
+        ),
     )
 
     @admin.display(description="Salary, USD", ordering="salary_min_usd")
@@ -90,14 +112,16 @@ class VacancyAdmin(admin.ModelAdmin[Vacancy]):
 class ScrapeRunAdmin(admin.ModelAdmin[ScrapeRun]):
     list_display = (
         "source",
+        "kind",
         "status",
         "started_at",
         "duration",
         "fetched_count",
         "created_count",
         "updated_count",
+        "failed_count",
     )
-    list_filter = ("status", "source")
+    list_filter = ("kind", "status", "source")
     list_select_related = ("source",)
     date_hierarchy = "started_at"
 
