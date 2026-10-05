@@ -2,6 +2,7 @@ from pathlib import Path
 
 import django_stubs_ext
 import environ
+from celery.schedules import crontab
 
 django_stubs_ext.monkeypatch()
 
@@ -103,3 +104,26 @@ SCRAPER_MIN_INTERVAL: float = env.float("SCRAPER_MIN_INTERVAL", default=1.0)
 
 VACANCY_CATEGORIES: list[str] = env.list("VACANCY_CATEGORIES", default=["Python"])
 VACANCY_DETAILS_BATCH_SIZE: int = env.int("VACANCY_DETAILS_BATCH_SIZE", default=50)
+
+CELERY_BROKER_URL: str = env.str("CELERY_BROKER_URL", default="redis://localhost:6379/0")
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_TIME_LIMIT = 30 * 60
+CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BEAT_SCHEDULE = {
+    "collect-vacancies": {
+        "task": "vacancies.tasks.collect_vacancies",
+        "schedule": crontab(minute="5"),
+    },
+    "enrich-vacancies": {
+        "task": "vacancies.tasks.enrich_vacancies",
+        "schedule": crontab(minute="20,50"),
+    },
+    "update-exchange-rates": {
+        "task": "market.tasks.update_exchange_rates",
+        "schedule": crontab(hour="9,17", minute="0"),
+    },
+}

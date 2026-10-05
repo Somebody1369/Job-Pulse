@@ -5,7 +5,7 @@ from typing import ClassVar, override
 from django.core.management.base import BaseCommand, CommandError
 
 from vacancies.models import ScrapeRun, Source
-from vacancies.services import supports_details
+from vacancies.services import active_sources, supports_details
 
 
 class SourceCommand(BaseCommand):
@@ -24,9 +24,7 @@ class SourceCommand(BaseCommand):
 
     def resolve_sources(self, codes: list[str] | None) -> list[Source]:
         if not codes:
-            return [
-                source for source in Source.objects.filter(is_active=True) if self._accepts(source)
-            ]
+            return active_sources(with_details=self.requires_details)
         sources = list(Source.objects.filter(code__in=codes))
         if missing := set(codes) - {source.code for source in sources}:
             raise CommandError(f"Unknown sources: {', '.join(sorted(missing))}")

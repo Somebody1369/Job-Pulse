@@ -1,4 +1,4 @@
-.PHONY: install env db up down migrate superuser collect run test lint format typecheck check
+.PHONY: install env services up down migrate superuser collect enrich rates run worker beat test lint format typecheck check
 
 install:
 	uv sync
@@ -6,8 +6,8 @@ install:
 env:
 	test -f .env || cp .env.example .env
 
-db:
-	docker compose up -d --wait db
+services:
+	docker compose up -d --wait db redis
 
 up:
 	docker compose up -d --build --wait
@@ -24,8 +24,20 @@ superuser:
 collect:
 	uv run python manage.py collect_vacancies
 
+enrich:
+	uv run python manage.py enrich_vacancies
+
+rates:
+	uv run python manage.py update_exchange_rates
+
 run:
 	uv run python manage.py runserver
+
+worker:
+	uv run celery --app config worker --loglevel INFO
+
+beat:
+	uv run celery --app config beat --loglevel INFO
 
 test:
 	uv run pytest --cov

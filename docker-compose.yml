@@ -1,5 +1,17 @@
 x-database-url: &database-url postgres://${POSTGRES_USER:-jobpulse}:${POSTGRES_PASSWORD:-jobpulse}@db:5432/${POSTGRES_DB:-jobpulse}
 
+x-app: &app
+  build: .
+  env_file: .env
+  environment:
+    DATABASE_URL: *database-url
+    CELERY_BROKER_URL: redis://redis:6379/0
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
 services:
   db:
     image: postgres:18-alpine
@@ -17,17 +29,29 @@ services:
       timeout: 3s
       retries: 10
 
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   web:
-    build: .
-    env_file: .env
-    environment:
-      DATABASE_URL: *database-url
+    <<: *app
     command: sh -c "python manage.py migrate --noinput && gunicorn config.wsgi:application"
     ports:
       - "${WEB_PORT:-8000}:8000"
-    depends_on:
-      db:
-        condition: service_healthy
+
+  worker:
+    <<: *app
+    command: celery --app config worker --loglevel INFO --concurrency 2
+
+  beat:
+    <<: *app
+    command: celery --app config beat --loglevel INFO --schedule /tmp/celerybeat-schedule
 
 volumes:
   postgres-data:

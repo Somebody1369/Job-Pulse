@@ -215,6 +215,14 @@ class VacancyEnricher:
         vacancy.save(update_fields=("details_fetched_at",))
 
 
+def active_sources(*, with_details: bool = False) -> list[Source]:
+    return [
+        source
+        for source in Source.objects.filter(is_active=True)
+        if not with_details or supports_details(source)
+    ]
+
+
 def supports_details(source: Source) -> bool:
     try:
         collector_class = get_collector_class(source.code)
