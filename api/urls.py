@@ -5,6 +5,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from api.views import (
     CompanyViewSet,
+    LatestReportView,
     MarketOverviewView,
     MarketSnapshotViewSet,
     NotificationViewSet,
@@ -37,6 +38,7 @@ urlpatterns = [
     path("v1/salaries/", SalaryStatisticsView.as_view(), name="salaries"),
     path("v1/salaries/dynamics/", SalaryDynamicsView.as_view(), name="salary-dynamics"),
     path("v1/skills/demand/", SkillDemandView.as_view(), name="skill-demand"),
+    path("v1/reports/latest/", LatestReportView.as_view(), name="latest-report"),
     path(
         "v1/subscribers/<int:subscriber_chat_id>/subscriptions/",
         subscriptions,

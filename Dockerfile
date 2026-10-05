@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.13-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -21,10 +21,26 @@ COPY . .
 RUN DJANGO_SECRET_KEY=collectstatic \
     DATABASE_URL=postgres://collectstatic@localhost/collectstatic \
     python manage.py collectstatic --noinput \
-    && useradd --system --uid 1000 --no-create-home app
-
-USER app
+    && useradd --system --uid 1000 --create-home app
 
 EXPOSE 8000
 
 CMD ["gunicorn", "config.wsgi:application"]
+
+
+FROM base AS browser
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends chromium chromium-driver fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV REPORT_CHROME_BINARY=/usr/bin/chromium \
+    REPORT_CHROMEDRIVER=/usr/bin/chromedriver \
+    REPORT_CHROME_ARGUMENTS=--no-sandbox
+
+USER app
+
+
+FROM base AS app
+
+USER app

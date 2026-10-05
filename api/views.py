@@ -1,8 +1,11 @@
 from typing import Any, override
 
 from django.db.models import Count, QuerySet
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.http import http_date
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.exceptions import NotFound
@@ -13,6 +16,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.views import APIView
 
+from analytics.models import DashboardReport
 from analytics.queries import (
     latest_survey,
     salary_by_experience,
@@ -139,8 +143,28 @@ class SkillDemandView(APIView):
         return Response(SkillDemandSerializer(rows, many=True).data)
 
 
+class LatestReportView(APIView):
+    permission_classes = (AllowAny,)
+
+    @extend_schema(
+        responses={
+            (200, "image/png"): OpenApiTypes.BINARY,
+            404: OpenApiResponse(description="No report has been rendered yet"),
+        }
+    )
+    def get(self, _request: Request) -> HttpResponse:
+        report = DashboardReport.objects.first()
+        if report is None:
+            raise NotFound("No report has been rendered yet")
+        response = HttpResponse(bytes(report.image), content_type="image/png")
+        response["Last-Modified"] = http_date(report.created_at.timestamp())
+        return response
+
+
 class SubscriberViewSet(
+    mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet[Subscriber],
 ):
@@ -148,6 +172,8 @@ class SubscriberViewSet(
     serializer_class = SubscriberSerializer
     queryset = Subscriber.objects.all()
     lookup_field = "chat_id"
+    filterset_fields = ("weekly_report",)
+    ordering = ("chat_id",)
 
     @extend_schema(
         request=SubscriberSerializer,

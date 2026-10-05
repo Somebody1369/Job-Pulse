@@ -1,11 +1,15 @@
 x-database-url: &database-url postgres://${POSTGRES_USER:-jobpulse}:${POSTGRES_PASSWORD:-jobpulse}@db:5432/${POSTGRES_DB:-jobpulse}
 
 x-app: &app
-  build: .
+  build:
+    context: .
+    target: app
   env_file: .env
   environment:
     DATABASE_URL: *database-url
     CELERY_BROKER_URL: redis://redis:6379/0
+    DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,web
+    REPORT_DASHBOARD_URL: http://web:8000/analytics/
   depends_on:
     db:
       condition: service_healthy
@@ -47,6 +51,9 @@ services:
 
   worker:
     <<: *app
+    build:
+      context: .
+      target: browser
     command: celery --app config worker --loglevel INFO --concurrency 2
 
   beat:

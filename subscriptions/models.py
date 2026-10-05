@@ -6,6 +6,7 @@ from vacancies.models import Skill, Vacancy
 class Subscriber(models.Model):
     chat_id = models.BigIntegerField(unique=True)
     username = models.CharField(max_length=64, blank=True)
+    weekly_report = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

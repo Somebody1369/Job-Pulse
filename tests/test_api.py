@@ -418,3 +418,15 @@ def test_string_representations() -> None:
     assert str(subscription) == f"Subscription #{subscription.pk} of 1"
     assert str(named) == "@anna"
     assert str(delivery) == "Python Developer to 1"
+
+
+def test_bot_lists_and_updates_weekly_report_subscribers(bot: APIClient) -> None:
+    Subscriber.objects.create(chat_id=1, weekly_report=True)
+    Subscriber.objects.create(chat_id=2)
+
+    enabled = bot.patch("/api/v1/subscribers/2/", {"weekly_report": True}, format="json")
+    listed = bot.get("/api/v1/subscribers/", {"weekly_report": "true"}).json()
+
+    assert enabled.json()["weekly_report"] is True
+    assert [item["chat_id"] for item in listed["results"]] == [1, 2]
+    assert bot.get("/api/v1/subscribers/", {"weekly_report": "false"}).json()["count"] == 0

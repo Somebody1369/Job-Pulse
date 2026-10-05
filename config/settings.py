@@ -116,6 +116,13 @@ DOU_SALARY_SURVEYS: list[str] = env.list(
     "DOU_SALARY_SURVEYS",
     default=["2024_june", "2024_dec", "2025_june", "2025_dec", "2026_june"],
 )
+REPORT_DASHBOARD_URL: str = env.str(
+    "REPORT_DASHBOARD_URL", default="http://localhost:8000/analytics/"
+)
+REPORT_CHROME_BINARY: str = env.str("REPORT_CHROME_BINARY", default="")
+REPORT_CHROMEDRIVER: str = env.str("REPORT_CHROMEDRIVER", default="")
+REPORT_CHROME_ARGUMENTS: list[str] = env.list("REPORT_CHROME_ARGUMENTS", default=[])
+REPORT_HISTORY_SIZE: int = env.int("REPORT_HISTORY_SIZE", default=10)
 MARKET_CATEGORIES: list[str] = env.list(
     "MARKET_CATEGORIES",
     default=[
@@ -170,6 +177,10 @@ CELERY_BEAT_SCHEDULE = {
     "capture-market-snapshots": {
         "task": "market.tasks.capture_market_snapshots",
         "schedule": crontab(hour="23", minute="30"),
+    },
+    "render-dashboard-report": {
+        "task": "analytics.tasks.render_dashboard_report",
+        "schedule": crontab(day_of_week="mon", hour="9", minute="0"),
     },
 }
 

@@ -125,7 +125,7 @@ class DemandQuerySerializer(serializers.Serializer[Any]):
 class SubscriberSerializer(serializers.ModelSerializer[Subscriber]):
     class Meta:
         model = Subscriber
-        fields = ("chat_id", "username", "created_at")
+        fields = ("chat_id", "username", "weekly_report", "created_at")
         read_only_fields = ("created_at",)
         extra_kwargs: ClassVar[dict[str, dict[str, Any]]] = {"chat_id": {"validators": []}}
 
