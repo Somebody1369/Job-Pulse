@@ -37,7 +37,7 @@ class CompanyAdmin(VacancyCountAdmin[Company]):
 
 @admin.register(Skill)
 class SkillAdmin(VacancyCountAdmin[Skill]):
-    list_display = ("name", "aliases", "is_case_sensitive", "vacancy_count")
+    list_display = ("name", "aliases", "stop_phrases", "is_case_sensitive", "vacancy_count")
     list_filter = ("is_case_sensitive",)
     search_fields = ("name",)
     prepopulated_fields = {"slug": ("name",)}

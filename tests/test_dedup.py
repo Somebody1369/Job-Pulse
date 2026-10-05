@@ -6,8 +6,9 @@ from market.services import UsdConverter
 from tests.utils import TEST_RATES, DenyList, StubCollector, make_ingestor, make_vacancy_data
 from vacancies.collectors.base import VacancyDetails
 from vacancies.dedup import company_key, title_key, vacancy_fingerprint
-from vacancies.models import Source, Vacancy
+from vacancies.models import Skill, Source, Vacancy
 from vacancies.services import VacancyEnricher
+from vacancies.skills import SkillMatcher
 
 
 @pytest.mark.parametrize(
@@ -72,6 +73,7 @@ def test_same_posting_on_different_sources_shares_fingerprint() -> None:
             {"https://djinni.co/jobs/9-python-developer/": VacancyDetails(company="Acme Ltd")}
         ),
         DenyList(),
+        matcher=SkillMatcher.from_skills(Skill.objects.all()),
         converter=UsdConverter(TEST_RATES),
         fetched_at=datetime(2026, 10, 5, tzinfo=UTC),
     ).enrich(Vacancy.objects.filter(source=djinni).select_related("company"))

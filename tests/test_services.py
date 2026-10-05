@@ -1,4 +1,6 @@
+from collections.abc import Iterable
 from datetime import timedelta
+from typing import override
 
 import pytest
 import responses
@@ -27,7 +29,8 @@ LAST_SEEN = FIRST_SEEN + timedelta(hours=1)
 
 
 class FailingMatcher(SkillMatcher):
-    def match(self, text: str) -> set[int]:
+    @override
+    def match(self, text: str, *, ignore: Iterable[str] = ()) -> set[int]:
         if "Broken" in text:
             raise RuntimeError("matcher failure")
         return set()
@@ -223,3 +226,18 @@ def test_database_rejects_inverted_salary_range(dou: Source) -> None:
 
     with pytest.raises(IntegrityError), transaction.atomic():
         Vacancy.objects.update(salary_min=5000, salary_max=1000)
+
+
+@pytest.mark.django_db
+def test_ingest_ignores_company_name_when_matching_skills(dou: Source) -> None:
+    make_ingestor(dou).ingest(
+        [
+            make_vacancy_data(
+                title="Marketing Manager",
+                company="Swift Punk",
+                description="Ми — Swift Punk, холдингова компанія. Знання SQL буде плюсом.",
+            )
+        ]
+    )
+
+    assert set(Vacancy.objects.get().skills.values_list("name", flat=True)) == {"SQL"}

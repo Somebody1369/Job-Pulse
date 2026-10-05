@@ -1,7 +1,7 @@
 import pytest
 
 from vacancies.models import Skill
-from vacancies.skills import SkillMatcher, compile_skill_pattern
+from vacancies.skills import SkillMatcher, compile_phrases, compile_skill_pattern
 
 GO = ("Go", "Golang", "golang")
 DOTNET = (".NET", "dotnet", "ASP.NET")
@@ -50,3 +50,37 @@ def test_skill_matcher_returns_matching_skill_ids() -> None:
     )
 
     assert matcher.match("Django + Postgres, go-to person for APIs") == {1, 2}
+
+
+def test_compile_phrases_without_phrases() -> None:
+    assert compile_phrases(["", ""], case_sensitive=False) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Experience with product launches or Go-To-Market initiatives", set()),
+        ("Go-live support for the payments platform", set()),
+        ("Go-to-market strategy and backend services in Go", {3}),
+    ],
+)
+def test_skill_matcher_applies_stop_phrases(text: str, expected: set[int]) -> None:
+    go = Skill(
+        pk=3,
+        name="Go",
+        aliases=["Golang"],
+        stop_phrases=["Go-to", "Go-live"],
+        is_case_sensitive=True,
+    )
+
+    assert SkillMatcher.from_skills([go]).match(text) == expected
+
+
+def test_skill_matcher_ignores_given_phrases() -> None:
+    matcher = SkillMatcher.from_skills(
+        [Skill(pk=1, name="Swift", is_case_sensitive=True), Skill(pk=2, name="Python")]
+    )
+    text = "Ми — Swift Punk, шукаємо Python розробника"
+
+    assert matcher.match(text) == {1, 2}
+    assert matcher.match(text, ignore=["swift punk"]) == {2}

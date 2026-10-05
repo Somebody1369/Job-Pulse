@@ -17,7 +17,7 @@ from tests.utils import (
     read_fixture,
 )
 from vacancies.collectors.base import DetailsParseError, VacancyDetails
-from vacancies.models import Company, ScrapeRun, Source, Vacancy
+from vacancies.models import Company, ScrapeRun, Skill, Source, Vacancy
 from vacancies.salary import SalaryRange
 from vacancies.services import (
     CompanyResolver,
@@ -26,6 +26,7 @@ from vacancies.services import (
     enrich_from_source,
     supports_details,
 )
+from vacancies.skills import SkillMatcher
 
 pytestmark = pytest.mark.django_db
 
@@ -83,6 +84,7 @@ def test_enricher_applies_details_and_tracks_failures(djinni: Source) -> None:
     enricher = VacancyEnricher(
         collector,
         DenyList(job_url("5")),
+        matcher=SkillMatcher.from_skills(Skill.objects.all()),
         converter=UsdConverter(TEST_RATES),
         fetched_at=FETCHED_AT,
     )
@@ -113,6 +115,7 @@ def test_feed_updates_keep_enriched_details(djinni: Source) -> None:
     VacancyEnricher(
         StubCollector({job_url("1"): VacancyDetails(company="Acme", is_remote=True)}),
         DenyList(),
+        matcher=SkillMatcher.from_skills(Skill.objects.all()),
         converter=UsdConverter(TEST_RATES),
         fetched_at=FETCHED_AT,
     ).enrich(Vacancy.objects.all())
@@ -211,3 +214,28 @@ def test_enrich_command_reports_failed_pages(
 def test_enrich_command_validates_arguments(arguments: tuple[str, ...], message: str) -> None:
     with pytest.raises(CommandError, match=message):
         call_command("enrich_vacancies", *arguments)
+
+
+def test_enricher_rematches_skills_once_company_is_known(djinni: Source) -> None:
+    make_ingestor(djinni).ingest(
+        [
+            make_vacancy_data(
+                external_id="1",
+                url=job_url("1"),
+                company="",
+                title="PR Manager",
+                description="Ми — Spring Systems, продуктова компанія.",
+            )
+        ]
+    )
+    assert set(Vacancy.objects.get().skills.values_list("name", flat=True)) == {"Spring"}
+
+    VacancyEnricher(
+        StubCollector({job_url("1"): VacancyDetails(company="Spring Systems")}),
+        DenyList(),
+        matcher=SkillMatcher.from_skills(Skill.objects.all()),
+        converter=UsdConverter(TEST_RATES),
+        fetched_at=FETCHED_AT,
+    ).enrich(Vacancy.objects.all())
+
+    assert not Vacancy.objects.get().skills.exists()

@@ -55,6 +55,7 @@ class Skill(models.Model):
     name = models.CharField(max_length=64, unique=True)
     slug = models.SlugField(max_length=64, unique=True)
     aliases = ArrayField(models.CharField(max_length=64), default=list, blank=True)
+    stop_phrases = ArrayField(models.CharField(max_length=64), default=list, blank=True)
     is_case_sensitive = models.BooleanField(default=False)
 
     class Meta:

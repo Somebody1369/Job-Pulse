@@ -24,6 +24,7 @@ from vacancies.salary import SalaryRange, format_salary_range
 from vacancies.skills import SkillMatcher
 
 GONE_STATUSES: Final = frozenset({404, 410})
+REMATCH_CHUNK_SIZE: Final = 1000
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,12 @@ def merge_duplicates(items: Iterable[VacancyData]) -> dict[str, VacancyData]:
             item if known is None else replace(item, categories=known.categories | item.categories)
         )
     return merged
+
+
+def match_skills(
+    matcher: SkillMatcher, *, title: str, description: str, company: Company | None
+) -> set[int]:
+    return matcher.match(f"{title}\n{description}", ignore=[company.name] if company else [])
 
 
 def format_salary(salary: SalaryRange) -> str:
@@ -138,7 +145,14 @@ class VacancyIngestor:
             self._apply(vacancy, data)
             vacancy.refresh_fingerprint()
             vacancy.save()
-            vacancy.skills.set(self._matcher.match(f"{data.title}\n{data.description}"))
+            vacancy.skills.set(
+                match_skills(
+                    self._matcher,
+                    title=vacancy.title,
+                    description=vacancy.description,
+                    company=vacancy.company,
+                )
+            )
         return IngestStats(
             fetched=len(batch),
             created=len(batch) - len(existing),
@@ -164,11 +178,13 @@ class VacancyEnricher:
         collector: DetailsCollector,
         robots: UrlPolicy,
         *,
+        matcher: SkillMatcher,
         converter: UsdConverter,
         fetched_at: datetime,
     ) -> None:
         self._collector = collector
         self._robots = robots
+        self._matcher = matcher
         self._writer = VacancyWriter(converter=converter)
         self._fetched_at = fetched_at
 
@@ -209,10 +225,37 @@ class VacancyEnricher:
         vacancy.details_fetched_at = self._fetched_at
         vacancy.refresh_fingerprint()
         vacancy.save()
+        vacancy.skills.set(
+            match_skills(
+                self._matcher,
+                title=vacancy.title,
+                description=vacancy.description,
+                company=vacancy.company,
+            )
+        )
 
     def _mark_fetched(self, vacancy: Vacancy) -> None:
         vacancy.details_fetched_at = self._fetched_at
         vacancy.save(update_fields=("details_fetched_at",))
+
+
+@transaction.atomic
+def rematch_skills() -> int:
+    matcher = SkillMatcher.from_skills(Skill.objects.all())
+    link_model = Vacancy.skills.through
+    vacancies = Vacancy.objects.select_related("company").only(
+        "title", "description", "company__name"
+    )
+    links = [
+        link_model(vacancy_id=vacancy.pk, skill_id=skill_id)
+        for vacancy in vacancies.iterator(chunk_size=REMATCH_CHUNK_SIZE)
+        for skill_id in match_skills(
+            matcher, title=vacancy.title, description=vacancy.description, company=vacancy.company
+        )
+    ]
+    link_model.objects.all().delete()
+    link_model.objects.bulk_create(links, batch_size=REMATCH_CHUNK_SIZE)
+    return len(links)
 
 
 def active_sources(*, with_details: bool = False) -> list[Source]:
@@ -268,6 +311,7 @@ def enrich_from_source(source: Source, *, http: HttpClient, limit: int) -> Scrap
         enricher = VacancyEnricher(
             collector,
             RobotsPolicy(http, settings.SCRAPER_USER_AGENT),
+            matcher=SkillMatcher.from_skills(Skill.objects.all()),
             converter=UsdConverter.from_latest_rates(),
             fetched_at=run.started_at,
         )
