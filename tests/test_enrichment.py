@@ -1,6 +1,5 @@
 from datetime import UTC, datetime
 from io import StringIO
-from typing import override
 
 import pytest
 import requests
@@ -9,8 +8,15 @@ from django.core.management import CommandError, call_command
 
 from core.http import HttpClient
 from market.services import UsdConverter
-from tests.utils import TEST_RATES, make_ingestor, make_vacancy_data, read_fixture
-from vacancies.collectors.base import DetailsCollector, DetailsParseError, VacancyDetails
+from tests.utils import (
+    TEST_RATES,
+    DenyList,
+    StubCollector,
+    make_ingestor,
+    make_vacancy_data,
+    read_fixture,
+)
+from vacancies.collectors.base import DetailsParseError, VacancyDetails
 from vacancies.models import Company, ScrapeRun, Source, Vacancy
 from vacancies.salary import SalaryRange
 from vacancies.services import (
@@ -35,26 +41,6 @@ def http_error(status: int) -> requests.HTTPError:
     response = requests.Response()
     response.status_code = status
     return requests.HTTPError(f"{status} error", response=response)
-
-
-class StubCollector(DetailsCollector):
-    def __init__(self, outcomes: dict[str, VacancyDetails | Exception]) -> None:
-        self._outcomes = outcomes
-
-    @override
-    def fetch_details(self, url: str) -> VacancyDetails:
-        outcome = self._outcomes[url]
-        if isinstance(outcome, Exception):
-            raise outcome
-        return outcome
-
-
-class DenyList:
-    def __init__(self, *denied: str) -> None:
-        self._denied = set(denied)
-
-    def is_allowed(self, url: str) -> bool:
-        return url not in self._denied
 
 
 @pytest.fixture

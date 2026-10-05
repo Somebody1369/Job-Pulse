@@ -47,3 +47,15 @@ def test_root_redirects_to_admin(client: Client) -> None:
 
     assert response.status_code == 302
     assert response["Location"] == reverse("admin:index")
+
+
+def test_vacancy_changelist_shows_cross_posted_vacancies(admin_client: Client) -> None:
+    make_ingestor(Source.objects.get(code="djinni")).ingest([make_vacancy_data(external_id="7")])
+    url = reverse("admin:vacancies_vacancy_changelist")
+
+    cross_posted = admin_client.get(url, {"cross_posted": "yes"})
+    single = admin_client.get(url, {"cross_posted": "no"})
+
+    assert cross_posted.context["cl"].result_count == 2
+    assert '<td class="field-also_on">Djinni</td>' in cross_posted.content.decode()
+    assert single.context["cl"].result_count == 0

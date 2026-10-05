@@ -1,10 +1,10 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, override
 
 from market.services import UsdConverter
-from vacancies.collectors.base import VacancyData
+from vacancies.collectors.base import DetailsCollector, VacancyData, VacancyDetails
 from vacancies.models import Skill, Source
 from vacancies.services import VacancyIngestor
 from vacancies.skills import SkillMatcher
@@ -52,3 +52,23 @@ def make_ingestor(
         converter=UsdConverter(TEST_RATES),
         seen_at=seen_at,
     )
+
+
+class StubCollector(DetailsCollector):
+    def __init__(self, outcomes: dict[str, VacancyDetails | Exception]) -> None:
+        self._outcomes = outcomes
+
+    @override
+    def fetch_details(self, url: str) -> VacancyDetails:
+        outcome = self._outcomes[url]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+class DenyList:
+    def __init__(self, *denied: str) -> None:
+        self._denied = set(denied)
+
+    def is_allowed(self, url: str) -> bool:
+        return url not in self._denied

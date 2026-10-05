@@ -7,7 +7,6 @@ from typing import Final
 import requests
 from django.conf import settings
 from django.db import transaction
-from django.utils.text import slugify
 
 from core.http import HttpClient
 from core.robots import RobotsPolicy, UrlPolicy
@@ -19,6 +18,7 @@ from vacancies.collectors.base import (
     VacancyDetails,
 )
 from vacancies.collectors.registry import UnknownSourceError, get_collector_class
+from vacancies.dedup import company_key
 from vacancies.models import Company, ScrapeRun, Skill, Source, Vacancy
 from vacancies.salary import SalaryRange, format_salary_range
 from vacancies.skills import SkillMatcher
@@ -61,7 +61,7 @@ class CompanyResolver:
         self._cache: dict[str, Company] = {}
 
     def resolve(self, name: str, website: str = "") -> Company | None:
-        slug = slugify(name, allow_unicode=True)
+        slug = company_key(name)
         if not slug:
             return None
         company = self._cache.get(slug)
@@ -123,9 +123,9 @@ class VacancyIngestor:
         batch = merge_duplicates(items)
         existing = {
             vacancy.external_id: vacancy
-            for vacancy in Vacancy.objects.select_for_update().filter(
-                source=self._source, external_id__in=batch.keys()
-            )
+            for vacancy in Vacancy.objects.select_for_update(of=("self",))
+            .select_related("company")
+            .filter(source=self._source, external_id__in=batch.keys())
         }
         for data in batch.values():
             vacancy = existing.get(data.external_id)
@@ -136,6 +136,7 @@ class VacancyIngestor:
                     first_seen_at=self._seen_at,
                 )
             self._apply(vacancy, data)
+            vacancy.refresh_fingerprint()
             vacancy.save()
             vacancy.skills.set(self._matcher.match(f"{data.title}\n{data.description}"))
         return IngestStats(
@@ -206,6 +207,7 @@ class VacancyEnricher:
         if details.english_level:
             vacancy.english_level = details.english_level
         vacancy.details_fetched_at = self._fetched_at
+        vacancy.refresh_fingerprint()
         vacancy.save()
 
     def _mark_fetched(self, vacancy: Vacancy) -> None:
@@ -250,9 +252,11 @@ def enrich_from_source(source: Source, *, http: HttpClient, limit: int) -> Scrap
         collector = get_collector_class(source.code)(http)
         if not isinstance(collector, DetailsCollector):
             raise DetailsNotSupportedError(f"Source {source.code!r} has no details collector")
-        pending = source.vacancies.filter(details_fetched_at__isnull=True).order_by(
-            "-published_at"
-        )[:limit]
+        pending = (
+            source.vacancies.filter(details_fetched_at__isnull=True)
+            .select_related("company")
+            .order_by("-published_at")[:limit]
+        )
         enricher = VacancyEnricher(
             collector,
             RobotsPolicy(http, settings.SCRAPER_USER_AGENT),

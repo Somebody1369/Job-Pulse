@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.utils import timezone
+
+from vacancies.dedup import vacancy_fingerprint
 
 if TYPE_CHECKING:
     from vacancies.services import IngestStats
@@ -62,6 +64,11 @@ class Skill(models.Model):
         return [self.name, *self.aliases]
 
 
+class VacancyQuerySet(models.QuerySet["Vacancy"]):
+    def distinct_postings(self) -> Self:
+        return self.order_by("fingerprint", "-published_at").distinct("fingerprint")
+
+
 class Vacancy(models.Model):
     class EnglishLevel(models.TextChoices):
         A1 = "A1", "A1 Beginner"
@@ -100,6 +107,9 @@ class Vacancy(models.Model):
     first_seen_at = models.DateTimeField(default=timezone.now)
     last_seen_at = models.DateTimeField(default=timezone.now)
     details_fetched_at = models.DateTimeField(null=True, blank=True)
+    fingerprint = models.CharField(max_length=64, db_index=True, editable=False, default="")
+
+    objects = VacancyQuerySet.as_manager()
 
     class Meta:
         ordering = ("-published_at",)
@@ -123,6 +133,13 @@ class Vacancy(models.Model):
 
     def __str__(self) -> str:
         return self.title
+
+    def refresh_fingerprint(self) -> None:
+        self.fingerprint = vacancy_fingerprint(
+            company=self.company.slug if self.company else "",
+            title=self.title,
+            fallback=f"{self.source_id}:{self.external_id}",
+        )
 
 
 class ScrapeRun(models.Model):
