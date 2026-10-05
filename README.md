@@ -6,7 +6,7 @@ JobPulse collects vacancies from Ukrainian IT job boards, normalizes them and tu
 
 ## Features
 
-- Collects vacancies from the public RSS feeds of **DOU** and **Djinni** every hour
+- Collects vacancies from the public RSS feeds of **DOU** and **Djinni** and from the public job board APIs of **Greenhouse** and **Lever** used by Ajax Systems, Kyivstar, ELEKS, airSlate, PandaDoc and Flo Health
 - Reads schema.org `JobPosting` data from Djinni job pages to add the company, locations, remote option, published salary, required experience and English level
 - Parses salary ranges such as `$1200–2800`, `від 40 000 грн` or `up to 2500 EUR` and converts them to USD with official **NBU** exchange rates
 - Detects 65 technologies from a skill dictionary with aliases, case-sensitive rules and stop phrases, for example `Postgres` → PostgreSQL and `ASP.NET` → .NET, but never `go` or `Go-to-market` → Go
@@ -115,10 +115,13 @@ JobPulse uses only data that sources publish for automated consumption.
 |---|---|---|
 | DOU | RSS `jobs.dou.ua/vacancies/feeds/` | Used |
 | Djinni | RSS `djinni.co/jobs/rss/` and `JobPosting` data on job pages | Used |
+| Greenhouse | Public Job Board API `boards-api.greenhouse.io` | Used for configured company boards |
+| Lever | Public Postings API `api.lever.co/v0/postings` | Used for configured company boards |
 | Djinni | Public salary statistics page `djinni.co/salaries/` | Used |
 | DOU | Raw salary survey files published in `github.com/devua/csv` | Used |
 | National Bank of Ukraine | Official exchange rate API | Used |
 | Upwork, Indeed, Fiverr, LinkedIn | Terms of service or robots.txt forbid scraping | Not used |
+| Remotive | Terms forbid showing its listings to collect sign-ups, which is what bot subscriptions do | Not used |
 
 Every request carries an identifiable `User-Agent`. Job pages are fetched only when robots.txt allows it. Requests to the same host are throttled, and temporary errors (429, 5xx) are retried with exponential backoff that respects `Retry-After`. Djinni's estimated salaries for similar vacancies are ignored: only salaries published by the employer are stored. JobPulse never collects candidates' personal data.
 
@@ -192,6 +195,8 @@ Collection commands exit with a non-zero code if any source fails, so they can a
 | `CELERY_BROKER_URL` | `redis://localhost:6379/0` | Redis URL for Celery |
 | `VACANCY_CATEGORIES` | `Python` | Categories to collect |
 | `VACANCY_DETAILS_BATCH_SIZE` | `50` | Job pages fetched per source and run |
+| `GREENHOUSE_BOARDS` / `LEVER_BOARDS` | 2 / 4 companies | Company boards to collect, `token` or `token=Company name` |
+| `ATS_LOCATION_KEYWORDS` | Ukrainian cities, Europe, worldwide | Keeps company board jobs relevant to the Ukrainian market |
 | `MARKET_CATEGORIES` | 24 categories | Djinni category codes to snapshot, an empty code is the whole market |
 | `DOU_SALARY_SURVEYS` | `2024_june` … `2026_june` | DOU surveys to import |
 | `SCRAPER_USER_AGENT` | `JobPulse/0.1` | User-Agent sent to job boards, should include a contact |
@@ -223,6 +228,6 @@ Runs ruff, mypy in strict mode, strict OpenAPI schema validation and the pytest 
 3. ~~Market analytics: Djinni market snapshots, DOU salary surveys, dashboard, exports, Selenium end-to-end test~~
 4. ~~REST API with Django REST Framework, JWT and OpenAPI documentation~~
 5. ~~Telegram bot with subscriptions, notifications and weekly reports rendered with Selenium~~
-6. More sources: Greenhouse, Lever, Remotive, Freelancehunt, Work.ua
+6. ~~More sources: Greenhouse and Lever company boards~~
 7. Candidate profiles and vacancy matching
 8. More end-to-end coverage and a demo deployment

@@ -33,7 +33,7 @@ def test_collect_builds_vacancies_from_feed(
         match=[matchers.query_param_matcher({"primary_keyword": "Python"})],
     )
 
-    vacancies = DjinniCollector(http_client).collect("Python")
+    vacancies = DjinniCollector(http_client).collect(["Python"])
 
     assert [vacancy.external_id for vacancy in vacancies] == ["851542", "851515", "829608"]
     vacancy = vacancies[1]

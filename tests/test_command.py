@@ -38,7 +38,7 @@ def test_collects_from_all_active_sources(mocked_responses: responses.RequestsMo
     assert "dou: 5 vacancies, 5 new, 0 updated" in output.getvalue()
     assert "djinni: 3 vacancies, 3 new, 0 updated" in output.getvalue()
     assert Vacancy.objects.count() == 8
-    assert ScrapeRun.objects.filter(status=ScrapeRun.Status.SUCCEEDED).count() == 2
+    assert ScrapeRun.objects.filter(status=ScrapeRun.Status.SUCCEEDED).count() == 4
 
 
 def test_second_run_updates_instead_of_duplicating(
@@ -72,7 +72,9 @@ def test_skips_inactive_sources(mocked_responses: responses.RequestsMock) -> Non
 
     call_command("collect_vacancies", stdout=StringIO())
 
-    assert set(ScrapeRun.objects.values_list("source__code", flat=True)) == {"dou"}
+    collected = set(ScrapeRun.objects.values_list("source__code", flat=True))
+    assert "dou" in collected
+    assert "djinni" not in collected
 
 
 def test_rejects_unknown_sources() -> None:

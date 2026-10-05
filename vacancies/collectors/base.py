@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import ClassVar, override
@@ -46,14 +47,17 @@ class Collector(ABC):
         self._http = http
 
     @abstractmethod
-    def collect(self, category: str) -> list[VacancyData]: ...
+    def collect(self, categories: Sequence[str]) -> list[VacancyData]: ...
 
 
 class RssCollector(Collector):
     feed_url: ClassVar[str]
 
     @override
-    def collect(self, category: str) -> list[VacancyData]:
+    def collect(self, categories: Sequence[str]) -> list[VacancyData]:
+        return [vacancy for category in categories for vacancy in self._collect_category(category)]
+
+    def _collect_category(self, category: str) -> list[VacancyData]:
         response = self._http.get(self.feed_url, params=self.feed_params(category))
         return [self.build(item, category) for item in parse_feed(response.content)]
 

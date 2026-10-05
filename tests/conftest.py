@@ -21,6 +21,8 @@ def pytest_configure() -> None:
 def _test_settings(settings: Settings) -> None:
     cache.clear()
     settings.SCRAPER_MIN_INTERVAL = 0
+    settings.GREENHOUSE_BOARDS = []
+    settings.LEVER_BOARDS = []
     settings.SCRAPER_MAX_RETRIES = 0
 
 

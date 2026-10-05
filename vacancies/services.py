@@ -284,7 +284,7 @@ def collect_from_source(
 
     def collect() -> IngestStats:
         collector = get_collector_class(source.code)(http)
-        items = [item for category in categories for item in collector.collect(category)]
+        items = collector.collect(categories)
         ingestor = VacancyIngestor(
             source,
             matcher=SkillMatcher.from_skills(Skill.objects.all()),

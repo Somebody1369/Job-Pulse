@@ -112,6 +112,29 @@ SCRAPER_MIN_INTERVAL: float = env.float("SCRAPER_MIN_INTERVAL", default=1.0)
 
 VACANCY_CATEGORIES: list[str] = env.list("VACANCY_CATEGORIES", default=["Python"])
 VACANCY_DETAILS_BATCH_SIZE: int = env.int("VACANCY_DETAILS_BATCH_SIZE", default=50)
+GREENHOUSE_BOARDS: list[str] = env.list("GREENHOUSE_BOARDS", default=["pandadoc", "flohealth"])
+LEVER_BOARDS: list[str] = env.list(
+    "LEVER_BOARDS",
+    default=["ajax=Ajax Systems", "kyivstar=Kyivstar", "eleks=ELEKS", "airslate=airSlate"],
+)
+ATS_LOCATION_KEYWORDS: list[str] = env.list(
+    "ATS_LOCATION_KEYWORDS",
+    default=[
+        "ukraine",
+        "україна",
+        "kyiv",
+        "київ",
+        "lviv",
+        "львів",
+        "kharkiv",
+        "dnipro",
+        "odesa",
+        "europe",
+        "emea",
+        "worldwide",
+        "anywhere",
+    ],
+)
 DOU_SALARY_SURVEYS: list[str] = env.list(
     "DOU_SALARY_SURVEYS",
     default=["2024_june", "2024_dec", "2025_june", "2025_dec", "2026_june"],

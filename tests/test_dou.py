@@ -79,7 +79,7 @@ def test_collect_builds_vacancies_from_feed(
         match=[matchers.query_param_matcher({"category": "Python"})],
     )
 
-    vacancies = DouCollector(http_client).collect("Python")
+    vacancies = DouCollector(http_client).collect(["Python"])
 
     assert [vacancy.external_id for vacancy in vacancies] == [
         "357643",

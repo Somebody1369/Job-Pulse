@@ -5,6 +5,8 @@ from typing import Final
 from vacancies.collectors.base import Collector
 from vacancies.collectors.djinni import DjinniCollector
 from vacancies.collectors.dou import DouCollector
+from vacancies.collectors.greenhouse import GreenhouseCollector
+from vacancies.collectors.lever import LeverCollector
 
 
 class UnknownSourceError(LookupError):
@@ -12,7 +14,10 @@ class UnknownSourceError(LookupError):
 
 
 COLLECTORS: Final[Mapping[str, type[Collector]]] = MappingProxyType(
-    {collector.source_code: collector for collector in (DouCollector, DjinniCollector)}
+    {
+        collector.source_code: collector
+        for collector in (DouCollector, DjinniCollector, GreenhouseCollector, LeverCollector)
+    }
 )
 
 

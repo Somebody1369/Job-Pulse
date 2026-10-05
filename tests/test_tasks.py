@@ -39,8 +39,13 @@ def test_collect_vacancies_task(mocked_responses: responses.RequestsMock) -> Non
     mocked_responses.get(DOU_FEED_URL, body=read_fixture("dou_python.xml"))
     mocked_responses.get(DJINNI_FEED_URL, body=read_fixture("djinni_python.xml"))
 
-    assert collect_vacancies() == {"dou": "succeeded", "djinni": "succeeded"}
-    assert ScrapeRun.objects.filter(kind=ScrapeRun.Kind.FEED).count() == 2
+    assert collect_vacancies() == {
+        "dou": "succeeded",
+        "djinni": "succeeded",
+        "greenhouse": "succeeded",
+        "lever": "succeeded",
+    }
+    assert ScrapeRun.objects.filter(kind=ScrapeRun.Kind.FEED).count() == 4
 
 
 def test_enrich_vacancies_task(mocked_responses: responses.RequestsMock) -> None:
