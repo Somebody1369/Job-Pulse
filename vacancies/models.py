@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Final, Self
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector, SearchVectorField
 from django.db import models
+from django.db.models import F
 from django.utils import timezone
 
 from vacancies.dedup import vacancy_fingerprint
 
 if TYPE_CHECKING:
     from vacancies.services import IngestStats
+
+SEARCH_CONFIG: Final = "english"
 
 
 class Source(models.Model):
@@ -64,9 +68,21 @@ class Skill(models.Model):
         return [self.name, *self.aliases]
 
 
+def search_query(text: str) -> SearchQuery:
+    return SearchQuery(text, search_type="websearch", config=SEARCH_CONFIG)
+
+
 class VacancyQuerySet(models.QuerySet["Vacancy"]):
     def distinct_postings(self) -> Self:
         return self.order_by("fingerprint", "-published_at").distinct("fingerprint")
+
+    def search(self, text: str) -> Self:
+        query = search_query(text)
+        return (
+            self.filter(search_vector=query)
+            .annotate(rank=SearchRank(F("search_vector"), query))
+            .order_by("-rank", "-published_at")
+        )
 
 
 class Vacancy(models.Model):
@@ -108,6 +124,12 @@ class Vacancy(models.Model):
     last_seen_at = models.DateTimeField(default=timezone.now)
     details_fetched_at = models.DateTimeField(null=True, blank=True)
     fingerprint = models.CharField(max_length=64, db_index=True, editable=False, default="")
+    search_vector = models.GeneratedField(
+        expression=SearchVector("title", weight="A", config=SEARCH_CONFIG)
+        + SearchVector("description", weight="B", config=SEARCH_CONFIG),
+        output_field=SearchVectorField(),
+        db_persist=True,
+    )
 
     objects = VacancyQuerySet.as_manager()
 
@@ -129,6 +151,7 @@ class Vacancy(models.Model):
         indexes = (
             models.Index(fields=("-published_at",), name="vacancy_published_idx"),
             GinIndex(fields=("categories",), name="vacancy_categories_gin"),
+            GinIndex(fields=("search_vector",), name="vacancy_search_gin"),
         )
 
     def __str__(self) -> str:

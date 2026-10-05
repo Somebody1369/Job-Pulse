@@ -2,12 +2,12 @@ from typing import Any, cast, override
 
 from django.contrib import admin
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.db.models import Count, Exists, Model, OuterRef, QuerySet, Subquery
+from django.db.models import Count, Exists, Model, OuterRef, Q, QuerySet, Subquery
 from django.http import HttpRequest
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
-from vacancies.models import Company, ScrapeRun, Skill, Source, Vacancy
+from vacancies.models import Company, ScrapeRun, Skill, Source, Vacancy, search_query
 from vacancies.salary import format_salary_range
 
 
@@ -88,7 +88,8 @@ class VacancyAdmin(admin.ModelAdmin[Vacancy]):
         "skills",
     )
     list_select_related = ("source", "company")
-    search_fields = ("title", "company__name", "description")
+    search_fields = ("title",)
+    search_help_text = "Full-text search with quotes, OR and -exclusions, or a company name."
     date_hierarchy = "published_at"
     autocomplete_fields = ("company",)
     filter_horizontal = ("skills",)
@@ -135,6 +136,16 @@ class VacancyAdmin(admin.ModelAdmin[Vacancy]):
             .values("names")
         )
         return super().get_queryset(request).annotate(other_sources=Subquery(other_sources))
+
+    @override
+    def get_search_results(
+        self, request: HttpRequest, queryset: QuerySet[Vacancy], search_term: str
+    ) -> tuple[QuerySet[Vacancy], bool]:
+        term = search_term.strip()
+        if not term:
+            return queryset, False
+        matches = Q(search_vector=search_query(term)) | Q(company__name__icontains=term)
+        return queryset.filter(matches), False
 
     @admin.display(description="Also on")
     def also_on(self, obj: Vacancy) -> str:
