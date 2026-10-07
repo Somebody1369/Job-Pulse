@@ -1,0 +1,121 @@
+# Production stack for a single server. Caddy is the only service reachable from the internet:
+# it obtains an HTTPS certificate for DOMAIN and proxies requests to gunicorn. PostgreSQL and
+# Redis stay inside the Compose network. Settings come from .env, see .env.production.example.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+x-app: &app
+  build:
+    context: .
+    target: app
+  env_file: .env
+  environment:
+    DATABASE_URL: postgres://${POSTGRES_USER:-jobpulse}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-jobpulse}
+    CELERY_BROKER_URL: redis://redis:6379/0
+    DJANGO_DEBUG: "false"
+    DJANGO_ALLOWED_HOSTS: ${DOMAIN:?Set DOMAIN in .env},web
+    DJANGO_CSRF_TRUSTED_ORIGINS: https://${DOMAIN}
+    DJANGO_SECURE_COOKIES: "true"
+    # Only Caddy and the other services can reach gunicorn, so it may trust X-Forwarded-Proto.
+    FORWARDED_ALLOW_IPS: "*"
+    REPORT_DASHBOARD_URL: http://web:8000/analytics/
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+  logging: *logging
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+    restart: unless-stopped
+    logging: *logging
+
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jobpulse}
+      POSTGRES_USER: ${POSTGRES_USER:-jobpulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    logging: *logging
+
+  redis:
+    image: redis:8-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    logging: *logging
+
+  web:
+    <<: *app
+    command: sh -c "python manage.py migrate --noinput && gunicorn config.wsgi:application"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 8000), 3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 2m
+      start_interval: 5s
+
+  worker:
+    <<: *app
+    build:
+      context: .
+      target: browser
+    # Beat runs inside the worker to save memory on small servers, so keep exactly one worker.
+    command: >-
+      celery --app config worker --beat --schedule /tmp/celerybeat-schedule
+      --loglevel INFO --concurrency ${CELERY_CONCURRENCY:-2}
+
+  bot:
+    build:
+      context: .
+      target: app
+    env_file: .env
+    environment:
+      JOBPULSE_API_URL: http://web:8000/api/v1/
+      BOT_REDIS_URL: redis://redis:6379/1
+    command: python -m bot
+    depends_on:
+      web:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+    profiles:
+      - bot
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:

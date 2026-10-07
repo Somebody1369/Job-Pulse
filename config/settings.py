@@ -16,6 +16,8 @@ SECRET_KEY = env.str("DJANGO_SECRET_KEY")
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS: list[str] = env.list("DJANGO_ALLOWED_HOSTS", default=[])
 CSRF_TRUSTED_ORIGINS: list[str] = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
+SESSION_COOKIE_SECURE: bool = env.bool("DJANGO_SECURE_COOKIES", default=False)
+CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
 
 INSTALLED_APPS = [
     "django.contrib.admin",

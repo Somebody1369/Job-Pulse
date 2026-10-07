@@ -22,7 +22,7 @@ JobPulse collects vacancies from Ukrainian IT job boards, normalizes them and tu
 
 ## Tech stack
 
-Python 3.13 · Django 6.1 · Django REST Framework · PostgreSQL 18 · Celery + Redis · aiogram 3 · httpx · Requests · BeautifulSoup + lxml · Selenium · Chart.js · openpyxl · Docker · uv · pytest · ruff · mypy (strict) · GitHub Actions
+Python 3.13 · Django 6.1 · Django REST Framework · PostgreSQL 18 · Celery + Redis · aiogram 3 · httpx · Requests · BeautifulSoup + lxml · Selenium · Chart.js · openpyxl · Docker · Caddy · uv · pytest · ruff · mypy (strict) · GitHub Actions
 
 ## Architecture
 
@@ -191,6 +191,8 @@ Collection commands exit with a non-zero code if any source fails, so they can a
 | `DJANGO_SECRET_KEY` | — | Django secret key |
 | `DJANGO_DEBUG` | `false` | Debug mode |
 | `DJANGO_ALLOWED_HOSTS` | empty | Comma-separated host names |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | empty | Comma-separated origins such as `https://jobpulse.example.com` |
+| `DJANGO_SECURE_COOKIES` | `false` | Send session and CSRF cookies over HTTPS only |
 | `DATABASE_URL` | — | PostgreSQL connection URL |
 | `CELERY_BROKER_URL` | `redis://localhost:6379/0` | Redis URL for Celery |
 | `VACANCY_CATEGORIES` | `Python` | Categories to collect |
@@ -209,7 +211,95 @@ Collection commands exit with a non-zero code if any source fails, so they can a
 | `BOT_NOTIFY_INTERVAL` | `300` | Seconds between notification checks |
 | `REPORT_DASHBOARD_URL` | `http://localhost:8000/analytics/` | Page captured for the weekly report |
 | `API_ANON_RATE` / `API_USER_RATE` | `120/minute` / `600/minute` | API rate limits |
+| `GUNICORN_WORKERS` / `GUNICORN_THREADS` | `2` / `1` | Gunicorn processes and threads per process |
 | `POSTGRES_PORT` / `REDIS_PORT` | `5433` / `6379` | Host ports of the Compose services |
+
+The production stack also reads `DOMAIN`, `POSTGRES_PASSWORD` and `CELERY_CONCURRENCY` (`2` by default), see [Deployment](#deployment).
+
+## Deployment
+
+`docker-compose.prod.yml` runs JobPulse on a single Linux server with Docker. Caddy is the only service exposed to the internet: it obtains a Let's Encrypt certificate, redirects HTTP to HTTPS and proxies requests to gunicorn. PostgreSQL and Redis are reachable only inside the Compose network, beat runs inside the Celery worker, logs are rotated and every service restarts after a failure or a reboot.
+
+### Server size
+
+| Server memory | Settings in `.env` |
+|---|---|
+| 2 GB or more | Defaults |
+| 1 GB, for example the Google Cloud e2-micro free tier | `GUNICORN_WORKERS=1`, `GUNICORN_THREADS=4`, `CELERY_CONCURRENCY=1` and a 2 GB swap file |
+
+With the 1 GB settings the services use about 600 MB once warm and up to about 760 MB while Chromium renders the weekly report, not counting the bot and the operating system. To add swap:
+
+```bash
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+### First deployment
+
+1. Create a server with a public IP address, allow incoming ports 80 and 443 and point a domain at the server. A free [DuckDNS](https://www.duckdns.org/) subdomain works.
+2. Install Docker, then log in again so that the group change applies, and clone the repository:
+
+   ```bash
+   curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker "$USER"
+   git clone https://github.com/Somebody1369/Job-Pulse.git jobpulse && cd jobpulse
+   ```
+
+3. Create `.env` with random secrets, then set `DOMAIN`, `SCRAPER_USER_AGENT` and, on a 1 GB server, the sizing settings. `.env` sets `COMPOSE_FILE=docker-compose.prod.yml`, so every `docker compose` command in this directory uses the production stack.
+
+   ```bash
+   deploy/init-env.sh
+   nano .env
+   ```
+
+4. Check that the sources answer from the server, since some sites block data center addresses. Every line should start with `200`:
+
+   ```bash
+   for url in https://djinni.co/jobs/rss/ https://djinni.co/salaries/ https://jobs.dou.ua/vacancies/feeds/ "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json"; do curl -s -o /dev/null -w "%{http_code} $url\n" "$url"; done
+   ```
+
+5. Start the stack and load the initial data:
+
+   ```bash
+   docker compose up -d --build --wait
+   docker compose exec web python manage.py createsuperuser
+   docker compose exec web python manage.py update_exchange_rates
+   docker compose exec web python manage.py collect_vacancies
+   docker compose exec web python manage.py capture_market_snapshots
+   docker compose exec web python manage.py import_salary_surveys
+   ```
+
+6. To run the Telegram bot, put its token into `TELEGRAM_BOT_TOKEN`, set `COMPOSE_PROFILES=bot` in `.env` and run:
+
+   ```bash
+   docker compose exec web python manage.py create_bot_account
+   docker compose up -d --wait
+   ```
+
+`manage.py check --deploy` reports only `security.W004` and `security.W008`: Caddy sends the HSTS header and redirects HTTP to HTTPS, while Django keeps serving plain HTTP inside the Compose network for the worker and the bot.
+
+### Updates
+
+Migrations run when the `web` service starts:
+
+```bash
+git pull
+docker compose up -d --build --wait
+docker image prune -f
+```
+
+### Backups
+
+`deploy/backup.sh` saves a compressed database dump into `backups/` and keeps the 14 newest, or `BACKUP_KEEP`. Schedule it with `crontab -e`, for example every night at 03:30:
+
+```
+30 3 * * * $HOME/jobpulse/deploy/backup.sh >> $HOME/jobpulse-backup.log 2>&1
+```
+
+The dumps live on the same disk as the database, so copy them elsewhere from time to time. To restore one:
+
+```bash
+docker compose exec -T db sh -c 'pg_restore --clean --if-exists --no-owner --username "$POSTGRES_USER" --dbname "$POSTGRES_DB"' < backups/jobpulse-20260101-033000.dump
+```
 
 ## Quality
 
