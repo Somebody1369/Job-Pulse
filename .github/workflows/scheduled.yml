@@ -1,0 +1,73 @@
+name: Scheduled tasks
+
+# Collects data for the free Render deployment, which has no Celery worker. Runs only when the
+# JOBPULSE_URL variable holds the public URL of the site and the DATABASE_URL secret holds the
+# external URL of its database. Times are UTC.
+on:
+  schedule:
+    - cron: "5 */3 * * *"
+    - cron: "0 6,14 * * *"
+    - cron: "30 20 * * *"
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Task to run, all loads the initial data
+        type: choice
+        options: [collect, rates, snapshots, surveys, report, all]
+        default: collect
+
+concurrency:
+  group: scheduled-tasks
+  cancel-in-progress: false
+
+jobs:
+  run:
+    if: vars.JOBPULSE_URL != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DJANGO_SECRET_KEY: scheduled-tasks-only-key-that-never-signs-anything-in-these-jobs
+      SCRAPER_USER_AGENT: ${{ vars.SCRAPER_USER_AGENT || 'JobPulse/0.1' }}
+      REPORT_DASHBOARD_URL: ${{ vars.JOBPULSE_URL }}/analytics/
+    steps:
+      - name: Choose the task
+        id: plan
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          TASK: ${{ inputs.task }}
+        run: |
+          case "$SCHEDULE" in
+            "5 */3 * * *") TASK=collect ;;
+            "0 6,14 * * *") TASK=rates ;;
+            "30 20 * * *") TASK=snapshots ;;
+            "0 6 * * 1") TASK=report ;;
+          esac
+          echo "task=$TASK" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked --no-dev
+      - name: Update exchange rates
+        if: ${{ !cancelled() && contains(fromJSON('["rates", "all"]'), steps.plan.outputs.task) }}
+        run: uv run python manage.py update_exchange_rates
+      - name: Collect and enrich vacancies
+        if: ${{ !cancelled() && contains(fromJSON('["collect", "all"]'), steps.plan.outputs.task) }}
+        run: |
+          uv run python manage.py collect_vacancies
+          uv run python manage.py enrich_vacancies
+      - name: Capture market snapshots
+        if: ${{ !cancelled() && contains(fromJSON('["snapshots", "all"]'), steps.plan.outputs.task) }}
+        run: uv run python manage.py capture_market_snapshots
+      - name: Import salary surveys
+        if: ${{ !cancelled() && contains(fromJSON('["surveys", "all"]'), steps.plan.outputs.task) }}
+        run: uv run python manage.py import_salary_surveys
+      - name: Render the dashboard report
+        if: ${{ !cancelled() && contains(fromJSON('["report", "all"]'), steps.plan.outputs.task) }}
+        run: |
+          curl --fail --silent --show-error --output /dev/null --max-time 120 \
+            --retry 10 --retry-delay 15 --retry-all-errors "$REPORT_DASHBOARD_URL"
+          uv run python manage.py render_dashboard_report

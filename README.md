@@ -301,6 +301,21 @@ The dumps live on the same disk as the database, so copy them elsewhere from tim
 docker compose exec -T db sh -c 'pg_restore --clean --if-exists --no-owner --username "$POSTGRES_USER" --dbname "$POSTGRES_DB"' < backups/jobpulse-20260101-033000.dump
 ```
 
+### Free demo on Render
+
+`render.yaml` describes a free demo on Render: the dashboard, API and admin run on a free web service with a free PostgreSQL 18 database in Frankfurt. Render has no free workers and free services sleep after 15 minutes without traffic, so the Scheduled tasks workflow in GitHub Actions collects the data instead of Celery. It collects vacancies every 3 hours, exchange rates at 06:00 and 14:00 UTC, market snapshots at 20:30 UTC and renders the dashboard report on Mondays at 06:00 UTC. The Telegram bot is not part of the demo.
+
+1. In Render choose **New → Blueprint**, connect the repository and deploy it.
+2. In the repository settings on GitHub, under **Secrets and variables → Actions**, add the secret `DATABASE_URL` with the External Database URL of `jobpulse-db`, the variable `JOBPULSE_URL` with the URL of the web service, for example `https://jobpulse.onrender.com`, and optionally the variable `SCRAPER_USER_AGENT`.
+3. Run the Scheduled tasks workflow manually with the `all` task to load the initial data.
+4. Create an admin account from your computer:
+
+   ```bash
+   DATABASE_URL='<External Database URL>' uv run python manage.py createsuperuser
+   ```
+
+The first request after a pause takes about a minute, the free database expires 30 days after creation unless it is upgraded, and GitHub disables scheduled workflows after 60 days without commits to the repository.
+
 ## Quality
 
 ```bash
