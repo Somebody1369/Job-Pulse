@@ -7,7 +7,7 @@ services:
     runtime: docker
     plan: free
     region: frankfurt
-    dockerCommand: sh -c "python manage.py migrate --noinput && gunicorn config.wsgi:application"
+    dockerCommand: ./deploy/render-start.sh
     envVars:
       - key: DATABASE_URL
         fromDatabase:
