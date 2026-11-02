@@ -46,7 +46,7 @@ jobs:
           esac
           echo "task=$TASK" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
       - name: Install dependencies
